@@ -11,19 +11,45 @@ import {
   TextEdit,
 } from "vscode-languageserver";
 import { TextDocument } from "vscode-languageserver-textdocument";
-import { diagnosticEqual, rangeContain } from "./utils";
+import { rangeContain } from "./utils";
 import { connectionType } from "./server";
 import { MaxProblems } from "./constants";
 import { CodeActionMap as CodeActionManager } from "./code_action_manager";
 
-export class AnymacroLanguageServer {
+export abstract class LanguageServer extends Object {
+  [key: string]: any;
+  constructor() {
+    super();
+  }
+
+  static registerKey = "_commands";
+  static register = (nickname?: string) => {
+    return (target: LanguageServer, key: string) => {
+      if (!target.hasOwnProperty(LanguageServer.registerKey)) {
+        Object.defineProperty(target, LanguageServer.registerKey, {
+          value: new Map<string, string>(),
+          writable: true,
+        });
+      }
+      nickname || (nickname = key);
+      target.commands.set(nickname, key);
+    };
+  };
+
+  get commands() {
+    return (this as any)[LanguageServer.registerKey] as Map<string, string>;
+  }
+}
+
+export class AnymacroLanguageServer extends LanguageServer {
   connection: connectionType;
   documents: TextDocuments<TextDocument>;
-  codeActionMgr: CodeActionManager;
+  codeActionManager: CodeActionManager;
   constructor(connectionRef: connectionType) {
+    super();
     this.connection = connectionRef;
     this.documents = new TextDocuments(TextDocument);
-    this.codeActionMgr = new CodeActionManager();
+    this.codeActionManager = new CodeActionManager();
     this.initDocument();
   }
 
@@ -41,7 +67,7 @@ export class AnymacroLanguageServer {
       return undefined;
     }
     params.range.start;
-    const actions = this.codeActionMgr
+    const actions = this.codeActionManager
       .getDocument(params.textDocument.uri)
       .filter((value) => {
         return rangeContain(value.diagnostic.range, params.range);
@@ -53,25 +79,30 @@ export class AnymacroLanguageServer {
   };
 
   onExecuteCommand = async (params: ExecuteCommandParams) => {
-    if (
-      params.command !== "to lower case" ||
-      params.arguments === undefined ||
-      params.arguments.length < 2
-    ) {
+    const methodName = this.commands.get(params.command);
+    const method = (methodName && this[methodName]) as Function | undefined;
+    if (!method) {
+      return;
+    }
+    method(...params.arguments!);
+  };
+
+  @AnymacroLanguageServer.register("to lower case")
+  to_lower_case = (uri?: string, identity?: string) => {
+    if (uri === undefined || identity === undefined) {
       return;
     }
 
-    const textDocument = this.documents.get(params.arguments[0]);
+    const textDocument = this.documents.get(uri);
     if (textDocument === undefined) {
       return;
     }
 
-    const action = this.codeActionMgr.getDocument(textDocument.uri).find((value) => {
-      console.log(value.action.command?.arguments![1]);
-      console.log(params.arguments![1]);
-      console.log(value.action.command?.arguments![1] === params.arguments![1]);
-      return diagnosticEqual(value.diagnostic, params.arguments![1]);
-    });
+    const action = this.codeActionManager
+      .getDocument(textDocument.uri)
+      .find((value) => {
+        return value.diagnostic.data === identity;
+      });
     if (action === undefined) {
       return;
     }
@@ -91,11 +122,9 @@ export class AnymacroLanguageServer {
   validateTextDocument = async (
     textDocument: TextDocument
   ): Promise<Diagnostic[]> => {
-    // In this simple example we get the settings for every validate run.
-    const actions = this.codeActionMgr.getDocument(textDocument.uri);
+    const actions = this.codeActionManager.getDocument(textDocument.uri);
     actions.splice(0, actions.length);
 
-    // The validator creates diagnostics for all uppercase words length 2 and more
     const text = textDocument.getText();
     const pattern = /\b[A-Z]{2,}\b/g;
     let m: RegExpExecArray | null;
@@ -112,7 +141,7 @@ export class AnymacroLanguageServer {
         },
         message: `${m[0]} is all uppercase.`,
         source: "ex",
-        data: textDocument.version,
+        data: `${textDocument.version}:${this.codeActionManager.getUnique()}`,
       };
       diagnostics.push(diagnostic);
 
@@ -121,7 +150,7 @@ export class AnymacroLanguageServer {
         diagnostic: diagnostic,
         action: CodeAction.create(
           label,
-          Command.create(label, label, textDocument.uri, diagnostic),
+          Command.create(label, label, textDocument.uri, diagnostic.data),
           CodeActionKind.QuickFix
         ),
       });

@@ -1,14 +1,26 @@
-import { CodeAction, Diagnostic } from 'vscode-languageserver';
+import { CodeAction, Diagnostic } from "vscode-languageserver";
 
 export type CodeActionWithDiagnostic = {
   diagnostic: Diagnostic;
   action: CodeAction;
 };
 
-export class CodeActionMap extends Map<string, Array<CodeActionWithDiagnostic>> {
+export class CodeActionMap extends Map<
+  string,
+  Array<CodeActionWithDiagnostic>
+> {
+  unique: number;
   constructor() {
     super();
+    this.unique = 0;
   }
+
+  getUnique = () => {
+    if (this.unique > Number.MAX_SAFE_INTEGER) {
+      this.unique = 0;
+    }
+    return this.unique++;
+  };
 
   getDocument = (path: string) => {
     let array = this.get(path);

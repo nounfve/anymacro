@@ -30,6 +30,8 @@ let hasConfigurationCapability = false;
 let hasWorkspaceFolderCapability = false;
 let hasDiagnosticRelatedInformationCapability = false;
 
+console.log(anymacroLanguageServer.commands);
+
 connection.onInitialize((params: InitializeParams) => {
   const capabilities = params.capabilities;
 
@@ -60,7 +62,7 @@ connection.onInitialize((params: InitializeParams) => {
       },
       codeActionProvider: true,
       executeCommandProvider: {
-        commands: ["to lower case"],
+        commands: Array.from(anymacroLanguageServer.commands.keys()),
       },
     },
   };
@@ -119,7 +121,9 @@ connection.onDidChangeConfiguration((change) => {
 });
 
 connection.languages.diagnostics.on(async (params) => {
-  const document = anymacroLanguageServer.documents.get(params.textDocument.uri);
+  const document = anymacroLanguageServer.documents.get(
+    params.textDocument.uri
+  );
   if (document !== undefined) {
     return {
       kind: DocumentDiagnosticReportKind.Full,
