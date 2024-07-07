@@ -19,3 +19,7 @@ export const diagnosticEqual = (one: Diagnostic, other: Diagnostic) => {
     postionToNumber(one.range.end) === postionToNumber(other.range.end)
   );
 };
+
+export type Optional<T extends { [key: string]: any }> = {
+  [key in keyof T]: T[key] | undefined;
+};

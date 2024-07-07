@@ -13,8 +13,13 @@ import {
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { rangeContain } from "./utils";
 import { connectionType } from "./server";
-import { MaxProblems } from "./constants";
-import { CodeActionMap as CodeActionManager } from "./code_action_manager";
+import { FileExtRegex, MaxProblems } from "./constants";
+import {
+  CodeActionMap as CodeActionManager,
+  CodeActionWithDiagnostic,
+} from "./code_action_manager";
+import { MacroTokenGroups as AnymacroTokenGroups } from "./anymacro_token_groups";
+import { AnyMacroFileTracker } from "./anymacro_file_tracker";
 
 export abstract class LanguageServer extends Object {
   [key: string]: any;
@@ -45,11 +50,13 @@ export class AnymacroLanguageServer extends LanguageServer {
   connection: connectionType;
   documents: TextDocuments<TextDocument>;
   codeActionManager: CodeActionManager;
+  fileTracker: AnyMacroFileTracker;
   constructor(connectionRef: connectionType) {
     super();
     this.connection = connectionRef;
     this.documents = new TextDocuments(TextDocument);
     this.codeActionManager = new CodeActionManager();
+    this.fileTracker = new AnyMacroFileTracker();
     this.initDocument();
   }
 
@@ -119,28 +126,32 @@ export class AnymacroLanguageServer extends LanguageServer {
     });
   };
 
-  validateTextDocument = async (
-    textDocument: TextDocument
-  ): Promise<Diagnostic[]> => {
+  @AnymacroLanguageServer.register("trigger macro")
+  trigger_macro = (uri?: string, identity?: string) => {
+    console.log("trigger macro");
+  };
+
+  validateAnymacroFile = async (textDocument: TextDocument) => {
     const actions = this.codeActionManager.getDocument(textDocument.uri);
     actions.splice(0, actions.length);
 
     const text = textDocument.getText();
-    const pattern = /\b[A-Z]{2,}\b/g;
-    let m: RegExpExecArray | null;
-
-    let problems = 0;
     const diagnostics: Diagnostic[] = [];
-    while ((m = pattern.exec(text)) && problems < MaxProblems) {
+    let problems = 0;
+
+    const allCaps = /\b[A-Z]{2,}\b/g;
+
+    let match: RegExpExecArray | null;
+    while ((match = allCaps.exec(text)) && problems < MaxProblems) {
       problems++;
       const diagnostic: Diagnostic = {
-        severity: DiagnosticSeverity.Warning,
+        severity: DiagnosticSeverity.Information,
         range: {
-          start: textDocument.positionAt(m.index),
-          end: textDocument.positionAt(m.index + m[0].length),
+          start: textDocument.positionAt(match.index),
+          end: textDocument.positionAt(match.index + match[0].length),
         },
-        message: `${m[0]} is all uppercase.`,
-        source: "ex",
+        message: `${match[0]} is all uppercase.`,
+        source: "anymacro",
         data: `${textDocument.version}:${this.codeActionManager.getUnique()}`,
       };
       diagnostics.push(diagnostic);
@@ -155,6 +166,102 @@ export class AnymacroLanguageServer extends LanguageServer {
         ),
       });
     }
+
+    const foundMacros = this.fileTracker.parseAnymacroDocument(
+      textDocument.uri,
+      text
+    );
+
+    foundMacros.forEach((value, key) => {
+      this._temp_show_symbol(value.start, textDocument, diagnostics);
+      this._temp_show_symbol(value.end, textDocument, diagnostics);
+    });
+
     return diagnostics;
+  };
+
+  validateCallingFile = async (textDocument: TextDocument) => {
+    const actions = this.codeActionManager.getDocument(textDocument.uri);
+    actions.splice(0, actions.length);
+
+    const text = textDocument.getText();
+    const diagnostics: Diagnostic[] = [];
+
+    const foundMacros = this.fileTracker.parseContent(text);
+    Object.entries(foundMacros).forEach(([key, value]) => {
+      const ic = value.end ? "" : "<called here>";
+      this._temp_show_symbol(
+        value.start!,
+        textDocument,
+        diagnostics,
+        actions,
+        ic
+      );
+      !ic && this._temp_show_symbol(value.end!, textDocument, diagnostics);
+    });
+
+    return diagnostics;
+  };
+
+  validateTextDocument = async (
+    textDocument: TextDocument
+  ): Promise<Diagnostic[]> => {
+    const fileExtMatch = textDocument.uri.match(FileExtRegex);
+    if (fileExtMatch !== null) {
+      return this.validateAnymacroFile(textDocument);
+    } else {
+      return this.validateCallingFile(textDocument);
+    }
+  };
+
+  _temp_show_symbol = (
+    groups: AnymacroTokenGroups,
+    textDocument: TextDocument,
+    diagnostics: Diagnostic[],
+    actions?: CodeActionWithDiagnostic[],
+    isCalling: string = ""
+  ) => {
+    if (groups.symbol) {
+      const startPos = textDocument.positionAt(groups.offSetStart("symbol"));
+      const endPos = textDocument.positionAt(groups.offsetEnd("symbol"));
+      const diagnostic: Diagnostic = {
+        severity: DiagnosticSeverity.Information,
+        range: {
+          start: startPos,
+          end: endPos,
+        },
+        message: `${groups.symbol} is symbol.${isCalling}`,
+        source: "anymacro",
+        data: `${textDocument.version}:${this.codeActionManager.getUnique()}`,
+      };
+
+      const label = "trigger macro";
+      diagnostics.push(diagnostic);
+      isCalling &&
+        actions?.push({
+          diagnostic: diagnostic,
+          action: CodeAction.create(
+            label,
+            Command.create(label, label, textDocument.uri, diagnostic.data),
+            CodeActionKind.QuickFix
+          ),
+        });
+    }
+
+    if (groups.args) {
+      const startPos = textDocument.positionAt(groups.offSetStart("args"));
+      const endPos = textDocument.positionAt(groups.offsetEnd("args"));
+      const diagnostic: Diagnostic = {
+        severity: DiagnosticSeverity.Information,
+        range: {
+          start: startPos,
+          end: endPos,
+        },
+        message: `${groups.args} is args.`,
+        source: "anymacro",
+        data: `${textDocument.version}:${this.codeActionManager.getUnique()}`,
+      };
+      diagnostics.push(diagnostic);
+    }
   };
 }

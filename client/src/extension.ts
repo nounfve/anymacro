@@ -3,6 +3,7 @@
  * Licensed under the MIT License. See License.txt in the project root for license information.
  * ------------------------------------------------------------------------------------------ */
 
+import { FileExtRegex } from "anymacro-server";
 import * as path from "path";
 import { workspace, ExtensionContext, DocumentSelector } from "vscode";
 
@@ -18,12 +19,11 @@ let client: LanguageClient;
 
 const SearchForAnyMacroExtension = async () => {
   const files = await workspace.findFiles("**/*.anymacro.*");
-  const extensionRegex = /^.+(?<anymacroExt>\.anymacro)(?<originExt>\..+)$/;
   const extensions: { [key: string]: string } = {};
   files
     .map((value) => path.basename(value.path))
     .forEach((value) => {
-      const match = value.match(extensionRegex);
+      const match = value.match(FileExtRegex);
 
       match != null &&
         match.groups.originExt != "" &&
@@ -52,10 +52,11 @@ export async function activate(context: ExtensionContext) {
   };
 
   const extensions = await SearchForAnyMacroExtension();
-  const fileSelector = Object.entries(extensions)
-    .map(([key, value]): DocumentFilter => {
+  const fileSelector = Object.entries(extensions).map(
+    ([key, value]): DocumentFilter => {
       return { scheme: "file", pattern: `**/*${key}` };
-    });
+    }
+  );
 
   const clientOptions: LanguageClientOptions = {
     // Register the server for plain text documents
