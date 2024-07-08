@@ -50,8 +50,9 @@ export const findIndent = (line: string) => {
 export function* parentPathGenerator(path: string, indexFileName: string) {
   yield path;
   let next = dirname(path);
-  while (next.length > 0) {
+  while (next.length > 10) {
     yield next + indexFileName;
     next = dirname(next);
   }
+  return
 }

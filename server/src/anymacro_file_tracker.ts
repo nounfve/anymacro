@@ -2,7 +2,7 @@ import { TextDocument } from "vscode-languageserver-textdocument";
 import { MacroTokenGroups } from "./anymacro_token_groups";
 import { Optional, findLastExtension, parentPathGenerator } from "./utils";
 
-type MacroBody = {
+export type MacroBody = {
   start: MacroTokenGroups;
   end: MacroTokenGroups;
 };

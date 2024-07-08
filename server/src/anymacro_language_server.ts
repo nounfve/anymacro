@@ -29,7 +29,7 @@ import {
   MacroPath,
 } from "./code_action_manager";
 import { MacroTokenGroups as AnymacroTokenGroups } from "./anymacro_token_groups";
-import { AnyMacroFileTracker } from "./anymacro_file_tracker";
+import { AnyMacroFileTracker, MacroBody } from "./anymacro_file_tracker";
 
 export abstract class LanguageServer extends Object {
   [key: string]: any;
@@ -150,17 +150,32 @@ export class AnymacroLanguageServer extends LanguageServer {
     textDocument: TextDocument,
     action: CodeActionWithDiagnostic
   ) => {
-    const callExpressionRange = rangeFullLine(action.diagnostic.range);
-    const callExpression = textDocument.getText(callExpressionRange);
+    const macroFile = this.documents.get(action.macroPath.fileName);
     const macro = this.fileTracker
-      .getDocument(pathInjectAnymacroExtension(textDocument.uri))
+      .getDocument(action.macroPath.fileName)
       .get(action.macroPath.symbolName);
-    if (macro === undefined) {
+    if (macroFile === undefined || macro === undefined) {
       return;
     }
 
-    const indent = findIndent(callExpression);
-    let newText = indent + "// " + callExpression.substring(indent.length);
+    const macroExpressionRange_ = Range.create(
+      macroFile.positionAt(macro.start.offSetStart("promot")),
+      macroFile.positionAt(macro.end.offsetEnd("end"))
+    );
+
+    const callExpressionRange = rangeFullLine(action.diagnostic.range);
+    const callExpression = textDocument.getText(callExpressionRange);
+    const callIndent = findIndent(callExpression);
+
+    const macroExpressionRange = rangeFullLine(macroExpressionRange_);
+    const macroExpression = macroFile.getText(macroExpressionRange);
+    const macroIndent = findIndent(macroExpression);
+
+    const macroIndetRegex = new RegExp(String.raw`/^${macroIndent}/g`);
+
+    let newText =
+      callIndent + "// " + callExpression.substring(callIndent.length);
+    newText = newText + macroExpression.replace(macroIndetRegex, callIndent);
 
     this.connection.workspace.applyEdit({
       documentChanges: [
@@ -172,18 +187,31 @@ export class AnymacroLanguageServer extends LanguageServer {
     });
   };
 
-  resolveSymbolForCallerFile = (symbol: string, path: string) => {
+  resolveFilePathForSymbol = (symbol: string, path: string) => {
     const extension = findLastExtension(path);
+    let macroFile: string = "";
     for (const filename of parentPathGenerator(
       pathInjectAnymacroExtension(path),
-      `index.anymacro.${extension}`
+      `index.anymacro${extension}`
     )) {
       const textDocument = this.documents.get(filename);
       if (!textDocument) {
         continue;
       }
-      this.fileTracker.parseAnymacroDocument(textDocument);
+
+      if (
+        this.fileTracker.version.get(textDocument.uri) !== textDocument.version
+      ) {
+        this, this.fileTracker.parseAnymacroDocument(textDocument);
+      }
+
+      const macro = this.fileTracker.getDocument(textDocument.uri).get(symbol);
+      if (!!macro) {
+        macroFile = textDocument.uri;
+        break;
+      }
     }
+    return macroFile;
   };
 
   validateAnymacroFile = async (textDocument: TextDocument) => {
@@ -243,8 +271,6 @@ export class AnymacroLanguageServer extends LanguageServer {
     const foundMacros = this.fileTracker.parseContent(text);
     Object.entries(foundMacros).forEach(([key, value]) => {
       const ic = value.end ? "" : "<called here>";
-      !ic &&
-        this.resolveSymbolForCallerFile(value.start!.symbol, textDocument.uri);
 
       this._temp_show_symbol(
         value.start!,
@@ -253,7 +279,10 @@ export class AnymacroLanguageServer extends LanguageServer {
         actions,
         ic
       );
-      !ic && this._temp_show_symbol(value.end!, textDocument, diagnostics);
+
+      if (ic === "") {
+        this._temp_show_symbol(value.end!, textDocument, diagnostics);
+      }
     });
 
     return diagnostics;
@@ -321,6 +350,12 @@ export class AnymacroLanguageServer extends LanguageServer {
         source: "anymacro",
         data: `${textDocument.version}:${this.codeActionManager.getUnique()}`,
       };
+
+      const macroFile = this.resolveFilePathForSymbol(
+        groups.symbol,
+        textDocument.uri
+      );
+
       const label = "trigger macro";
       diagnostics.push(diagnostic);
       isCalling &&
@@ -332,7 +367,7 @@ export class AnymacroLanguageServer extends LanguageServer {
             CodeActionKind.QuickFix
           ),
           macroPath: {
-            fileName: "",
+            fileName: macroFile,
             symbolName: groups.symbol,
           },
         });
