@@ -62,8 +62,7 @@ export async function activate(context: ExtensionContext) {
     // Register the server for plain text documents
     documentSelector: fileSelector,
     synchronize: {
-      // Notify the server about file changes to '.clientrc files contained in the workspace
-      fileEvents: workspace.createFileSystemWatcher("**/.clientrc"),
+      fileEvents: workspace.createFileSystemWatcher("**/*.anymacro.*"),
     },
   };
 

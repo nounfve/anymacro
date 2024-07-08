@@ -1,10 +1,6 @@
+import { TextDocument } from "vscode-languageserver-textdocument";
 import { MacroTokenGroups } from "./anymacro_token_groups";
-import { Optional } from "./utils";
-
-type MacroPath = {
-  fileName: string;
-  symbolName: string;
-};
+import { Optional, findLastExtension, parentPathGenerator } from "./utils";
 
 type MacroBody = {
   start: MacroTokenGroups;
@@ -13,8 +9,10 @@ type MacroBody = {
 
 export class AnyMacroFileTracker {
   macros: Map<string, Map<string, MacroBody>>;
+  version: Map<string, number>;
   constructor() {
     this.macros = new Map();
+    this.version = new Map();
   }
 
   getDocument = (path: string) => {
@@ -29,7 +27,7 @@ export class AnyMacroFileTracker {
 
     while ((match = regEx.exec(content))) {
       const groups = new MacroTokenGroups(match);
-      if (groups.isDefineStart() ||groups.isCall()) {
+      if (groups.isDefineStart() || groups.isCall()) {
         // found a define start
         if (!!found[groups.symbol]) {
           // skip for existed symbol
@@ -50,19 +48,21 @@ export class AnyMacroFileTracker {
     return found;
   };
 
-  parseAnymacroDocument = (path: string, content: string) => {
+  parseAnymacroDocument = (textDocument: TextDocument) => {
+    const content = textDocument.getText();
     const found = Object.entries(this.parseContent(content)).filter(
       ([key, value]) => {
         return value.end !== undefined && value.start !== undefined;
       }
     ) as [string, MacroBody][];
 
-    const macroMap = this.getDocument(path);
+    const macroMap = this.getDocument(textDocument.uri);
     macroMap.clear();
 
     found.forEach(([key, value]) => {
       macroMap.set(key, value);
     });
+    this.version.set(textDocument.uri, textDocument.version);
     return macroMap;
   };
 }

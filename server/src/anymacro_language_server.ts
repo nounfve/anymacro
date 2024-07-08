@@ -5,18 +5,28 @@ import {
   Command,
   Diagnostic,
   DiagnosticSeverity,
+  DidChangeWatchedFilesParams,
   ExecuteCommandParams,
+  Range,
   TextDocumentEdit,
   TextDocuments,
   TextEdit,
 } from "vscode-languageserver";
 import { TextDocument } from "vscode-languageserver-textdocument";
-import { rangeContain } from "./utils";
+import {
+  findIndent,
+  findLastExtension,
+  parentPathGenerator,
+  pathInjectAnymacroExtension,
+  rangeContain,
+  rangeFullLine,
+} from "./utils";
 import { connectionType } from "./server";
 import { FileExtRegex, MaxProblems } from "./constants";
 import {
   CodeActionMap as CodeActionManager,
   CodeActionWithDiagnostic,
+  MacroPath,
 } from "./code_action_manager";
 import { MacroTokenGroups as AnymacroTokenGroups } from "./anymacro_token_groups";
 import { AnyMacroFileTracker } from "./anymacro_file_tracker";
@@ -86,20 +96,13 @@ export class AnymacroLanguageServer extends LanguageServer {
   };
 
   onExecuteCommand = async (params: ExecuteCommandParams) => {
+    console.log(params.command);
     const methodName = this.commands.get(params.command);
     const method = (methodName && this[methodName]) as Function | undefined;
     if (!method) {
       return;
     }
-    method(...params.arguments!);
-  };
-
-  @AnymacroLanguageServer.register("to lower case")
-  to_lower_case = (uri?: string, identity?: string) => {
-    if (uri === undefined || identity === undefined) {
-      return;
-    }
-
+    const [uri, identity] = params.arguments as string[];
     const textDocument = this.documents.get(uri);
     if (textDocument === undefined) {
       return;
@@ -114,6 +117,22 @@ export class AnymacroLanguageServer extends LanguageServer {
       return;
     }
 
+    method(textDocument, action);
+  };
+
+  onDidChangeWatchedFiles = async (params: DidChangeWatchedFilesParams) => {
+    for (const change of params.changes) {
+      console.log(this.documents.get(change.uri));
+      const textdocument = this.documents.get(change.uri);
+      this.fileTracker.parseAnymacroDocument(textdocument!);
+    }
+  };
+
+  @AnymacroLanguageServer.register("to lower case")
+  to_lower_case = (
+    textDocument: TextDocument,
+    action: CodeActionWithDiagnostic
+  ) => {
     const newText = textDocument.getText(action.diagnostic.range).toLowerCase();
 
     this.connection.workspace.applyEdit({
@@ -127,16 +146,69 @@ export class AnymacroLanguageServer extends LanguageServer {
   };
 
   @AnymacroLanguageServer.register("trigger macro")
-  trigger_macro = (uri?: string, identity?: string) => {
-    console.log("trigger macro");
+  trigger_macro = (
+    textDocument: TextDocument,
+    action: CodeActionWithDiagnostic
+  ) => {
+    const callExpressionRange = rangeFullLine(action.diagnostic.range);
+    const callExpression = textDocument.getText(callExpressionRange);
+    const macro = this.fileTracker
+      .getDocument(pathInjectAnymacroExtension(textDocument.uri))
+      .get(action.macroPath.symbolName);
+    if (macro === undefined) {
+      return;
+    }
+
+    const indent = findIndent(callExpression);
+    let newText = indent + "// " + callExpression.substring(indent.length);
+
+    this.connection.workspace.applyEdit({
+      documentChanges: [
+        TextDocumentEdit.create(
+          { uri: textDocument.uri, version: textDocument.version },
+          [TextEdit.replace(callExpressionRange, newText)]
+        ),
+      ],
+    });
+  };
+
+  resolveSymbolForCallerFile = (symbol: string, path: string) => {
+    const extension = findLastExtension(path);
+    for (const filename of parentPathGenerator(
+      pathInjectAnymacroExtension(path),
+      `index.anymacro.${extension}`
+    )) {
+      const textDocument = this.documents.get(filename);
+      if (!textDocument) {
+        continue;
+      }
+      this.fileTracker.parseAnymacroDocument(textDocument);
+    }
   };
 
   validateAnymacroFile = async (textDocument: TextDocument) => {
     const actions = this.codeActionManager.getDocument(textDocument.uri);
     actions.splice(0, actions.length);
 
+    const diagnostics: Diagnostic[] = [];
+
+    const foundMacros = this.fileTracker.parseAnymacroDocument(textDocument);
+
+    foundMacros.forEach((value, key) => {
+      this._temp_show_symbol(value.start, textDocument, diagnostics);
+      this._temp_show_symbol(value.end, textDocument, diagnostics);
+    });
+
+    return diagnostics;
+  };
+
+  validateCallingFile = async (textDocument: TextDocument) => {
+    const actions = this.codeActionManager.getDocument(textDocument.uri);
+    actions.splice(0, actions.length);
+
     const text = textDocument.getText();
     const diagnostics: Diagnostic[] = [];
+
     let problems = 0;
 
     const allCaps = /\b[A-Z]{2,}\b/g;
@@ -164,32 +236,16 @@ export class AnymacroLanguageServer extends LanguageServer {
           Command.create(label, label, textDocument.uri, diagnostic.data),
           CodeActionKind.QuickFix
         ),
+        macroPath: [] as unknown as MacroPath,
       });
     }
-
-    const foundMacros = this.fileTracker.parseAnymacroDocument(
-      textDocument.uri,
-      text
-    );
-
-    foundMacros.forEach((value, key) => {
-      this._temp_show_symbol(value.start, textDocument, diagnostics);
-      this._temp_show_symbol(value.end, textDocument, diagnostics);
-    });
-
-    return diagnostics;
-  };
-
-  validateCallingFile = async (textDocument: TextDocument) => {
-    const actions = this.codeActionManager.getDocument(textDocument.uri);
-    actions.splice(0, actions.length);
-
-    const text = textDocument.getText();
-    const diagnostics: Diagnostic[] = [];
 
     const foundMacros = this.fileTracker.parseContent(text);
     Object.entries(foundMacros).forEach(([key, value]) => {
       const ic = value.end ? "" : "<called here>";
+      !ic &&
+        this.resolveSymbolForCallerFile(value.start!.symbol, textDocument.uri);
+
       this._temp_show_symbol(
         value.start!,
         textDocument,
@@ -230,22 +286,10 @@ export class AnymacroLanguageServer extends LanguageServer {
           start: startPos,
           end: endPos,
         },
-        message: `${groups.symbol} is symbol.${isCalling}`,
+        message: `${groups.symbol} is symbol.`,
         source: "anymacro",
         data: `${textDocument.version}:${this.codeActionManager.getUnique()}`,
       };
-
-      const label = "trigger macro";
-      diagnostics.push(diagnostic);
-      isCalling &&
-        actions?.push({
-          diagnostic: diagnostic,
-          action: CodeAction.create(
-            label,
-            Command.create(label, label, textDocument.uri, diagnostic.data),
-            CodeActionKind.QuickFix
-          ),
-        });
     }
 
     if (groups.args) {
@@ -262,6 +306,36 @@ export class AnymacroLanguageServer extends LanguageServer {
         data: `${textDocument.version}:${this.codeActionManager.getUnique()}`,
       };
       diagnostics.push(diagnostic);
+    }
+
+    if (isCalling) {
+      const startPos = textDocument.positionAt(groups.offSetStart("promot"));
+      const endPos = textDocument.positionAt(groups.offsetEnd("end"));
+      const diagnostic: Diagnostic = {
+        severity: DiagnosticSeverity.Information,
+        range: {
+          start: startPos,
+          end: endPos,
+        },
+        message: `${groups.symbol} is ${isCalling}`,
+        source: "anymacro",
+        data: `${textDocument.version}:${this.codeActionManager.getUnique()}`,
+      };
+      const label = "trigger macro";
+      diagnostics.push(diagnostic);
+      isCalling &&
+        actions?.push({
+          diagnostic: diagnostic,
+          action: CodeAction.create(
+            label,
+            Command.create(label, label, textDocument.uri, diagnostic.data),
+            CodeActionKind.QuickFix
+          ),
+          macroPath: {
+            fileName: "",
+            symbolName: groups.symbol,
+          },
+        });
     }
   };
 }

@@ -145,6 +145,7 @@ connection.onExecuteCommand(anymacroLanguageServer.onExecuteCommand);
 
 connection.onDidChangeWatchedFiles((_change) => {
   // Monitored files have change in VSCode
+  console.log(_change.changes[0].type);
   connection.console.log("We received a file change event");
 });
 

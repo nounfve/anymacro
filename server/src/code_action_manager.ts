@@ -1,8 +1,14 @@
 import { CodeAction, Diagnostic } from "vscode-languageserver";
 
+export type MacroPath = {
+  fileName: string;
+  symbolName: string;
+};
+
 export type CodeActionWithDiagnostic = {
   diagnostic: Diagnostic;
   action: CodeAction;
+  macroPath: MacroPath;
 };
 
 export class CodeActionMap extends Map<
