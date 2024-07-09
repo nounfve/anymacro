@@ -17,6 +17,7 @@ import {
 } from "vscode-languageserver/node";
 
 import { AnymacroLanguageServer } from "./anymacro_language_server";
+import { busyWait } from "./utils";
 
 // Create a connection for the server, using Node's IPC as a transport.
 // Also include all preview / proposed LSP features.
@@ -29,8 +30,6 @@ const anymacroLanguageServer = new AnymacroLanguageServer(connection);
 let hasConfigurationCapability = false;
 let hasWorkspaceFolderCapability = false;
 let hasDiagnosticRelatedInformationCapability = false;
-
-console.log(anymacroLanguageServer.commands);
 
 connection.onInitialize((params: InitializeParams) => {
   const capabilities = params.capabilities;
@@ -73,6 +72,8 @@ connection.onInitialize((params: InitializeParams) => {
       },
     };
   }
+
+  anymacroLanguageServer.onInitialize(params);
   return result;
 });
 
@@ -89,6 +90,8 @@ connection.onInitialized(() => {
       connection.console.log("Workspace folder change event received.");
     });
   }
+
+  anymacroLanguageServer.onInitialized();
 });
 
 // The example settings
@@ -183,5 +186,4 @@ connection.onCompletionResolve((item: CompletionItem): CompletionItem => {
   return item;
 });
 
-// Listen on the connection
-connection.listen();
+anymacroLanguageServer.listen();

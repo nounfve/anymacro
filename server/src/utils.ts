@@ -51,8 +51,13 @@ export function* parentPathGenerator(path: string, indexFileName: string) {
   yield path;
   let next = dirname(path);
   while (next.length > 10) {
-    yield next + indexFileName;
+    yield `${next}/${indexFileName}`;
     next = dirname(next);
   }
-  return
+  return;
+}
+
+export async function busyWait(test: () => boolean) {
+  const delayMs = 200;
+  while (!test()) await new Promise((resolve) => setTimeout(resolve, delayMs));
 }

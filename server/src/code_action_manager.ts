@@ -3,6 +3,7 @@ import { CodeAction, Diagnostic } from "vscode-languageserver";
 export type MacroPath = {
   fileName: string;
   symbolName: string;
+  arguments: string;
 };
 
 export type CodeActionWithDiagnostic = {

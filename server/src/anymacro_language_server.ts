@@ -7,12 +7,14 @@ import {
   DiagnosticSeverity,
   DidChangeWatchedFilesParams,
   ExecuteCommandParams,
+  InitializeParams,
   Range,
   TextDocumentEdit,
   TextDocuments,
   TextEdit,
+  WorkspaceFolder,
 } from "vscode-languageserver";
-import { TextDocument } from "vscode-languageserver-textdocument";
+import { DocumentUri, TextDocument } from "vscode-languageserver-textdocument";
 import {
   findIndent,
   findLastExtension,
@@ -28,8 +30,16 @@ import {
   CodeActionWithDiagnostic,
   MacroPath,
 } from "./code_action_manager";
-import { MacroTokenGroups as AnymacroTokenGroups } from "./anymacro_token_groups";
+import {
+  MacroTokenGroups as AnymacroTokenGroups,
+  MacroTokenGroups,
+} from "./anymacro_token_groups";
 import { AnyMacroFileTracker, MacroBody } from "./anymacro_file_tracker";
+import { Glob, glob } from "glob";
+import { fileURLToPath } from "url";
+import { URI } from "vscode-uri";
+import { readFile } from "fs/promises";
+import { TextDocumentsEx } from "./text_document_ex";
 
 export abstract class LanguageServer extends Object {
   [key: string]: any;
@@ -58,25 +68,43 @@ export abstract class LanguageServer extends Object {
 
 export class AnymacroLanguageServer extends LanguageServer {
   connection: connectionType;
-  documents: TextDocuments<TextDocument>;
+  documents: TextDocumentsEx<TextDocument>;
   codeActionManager: CodeActionManager;
   fileTracker: AnyMacroFileTracker;
+  workspaceFolders: WorkspaceFolder[];
   constructor(connectionRef: connectionType) {
     super();
     this.connection = connectionRef;
-    this.documents = new TextDocuments(TextDocument);
+    this.documents = new TextDocumentsEx(TextDocument);
     this.codeActionManager = new CodeActionManager();
     this.fileTracker = new AnyMacroFileTracker();
-    this.initDocument();
+    this.workspaceFolders = [];
   }
 
-  initDocument = () => {
+  listen = async () => {
     this.documents.onDidChangeContent((change) => {
       this.validateTextDocument(change.document);
     });
 
     this.documents.listen(this.connection);
+    this.connection.listen();
   };
+
+  onInitialize = async (params: InitializeParams) => {
+    this.workspaceFolders = params.workspaceFolders || [];
+    for (const folder of this.workspaceFolders) {
+      const prefix: string = fileURLToPath(folder.uri);
+      const files = await glob("**/*.anymacro.*", {
+        cwd: prefix,
+      });
+      for (const file of files) {
+        const filePath = `${prefix}/${file}`;
+        await this.documents.create(filePath);
+      }
+    }
+  };
+
+  onInitialized = () => {};
 
   onCodeAction = (params: CodeActionParams) => {
     const textDocument = this.documents.get(params.textDocument.uri);
@@ -157,11 +185,13 @@ export class AnymacroLanguageServer extends LanguageServer {
     if (macroFile === undefined || macro === undefined) {
       return;
     }
-
+    
     const macroExpressionRange_ = Range.create(
       macroFile.positionAt(macro.start.offSetStart("promot")),
       macroFile.positionAt(macro.end.offsetEnd("end"))
     );
+    const macroArguments = MacroTokenGroups.findArgs(macro.start.args);
+    const callArguments = MacroTokenGroups.findArgs(action.macroPath.arguments);
 
     const callExpressionRange = rangeFullLine(action.diagnostic.range);
     const callExpression = textDocument.getText(callExpressionRange);
@@ -170,12 +200,13 @@ export class AnymacroLanguageServer extends LanguageServer {
     const macroExpressionRange = rangeFullLine(macroExpressionRange_);
     const macroExpression = macroFile.getText(macroExpressionRange);
     const macroIndent = findIndent(macroExpression);
-
-    const macroIndetRegex = new RegExp(String.raw`/^${macroIndent}/g`);
-
+    
+    const macroIndetRegex = new RegExp(String.raw`^${macroIndent}`, "gm");
+    const macroExpressionCalled = MacroTokenGroups.replaceArgs(macroExpression,macroArguments,callArguments);
+    
     let newText =
       callIndent + "// " + callExpression.substring(callIndent.length);
-    newText = newText + macroExpression.replace(macroIndetRegex, callIndent);
+    newText = newText + macroExpressionCalled.replace(macroIndetRegex, callIndent);
 
     this.connection.workspace.applyEdit({
       documentChanges: [
@@ -369,6 +400,7 @@ export class AnymacroLanguageServer extends LanguageServer {
           macroPath: {
             fileName: macroFile,
             symbolName: groups.symbol,
+            arguments: groups.args,
           },
         });
     }
