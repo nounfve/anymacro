@@ -26,7 +26,7 @@ export abstract class MatchToken implements SyntaxNode {
 }
 
 export class keyword extends LiteralToken {
-  private static _matcher = new MatchHelper("@anymacro");
+  private static _matcher = new MatchHelper("@anyMacro");
   static get matcher(): MatchHelper {
     keyword._matcher.pattern.lastIndex = 0;
     return keyword._matcher;

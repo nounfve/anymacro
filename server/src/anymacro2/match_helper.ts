@@ -8,7 +8,7 @@ export interface FindResult {
 export class MatchHelper {
   pattern: RegExp;
   constructor(pattern: RegExp | string) {
-    this.pattern = new RegExp(pattern);
+    this.pattern = new RegExp(pattern,"g");
   }
 
   indexIn = (target: string, offset: number = 0): number => {

@@ -10,7 +10,6 @@ import {
   InitializeParams,
   Range,
   TextDocumentEdit,
-  TextDocuments,
   TextEdit,
   WorkspaceFolder,
 } from "vscode-languageserver";
@@ -30,16 +29,12 @@ import {
   CodeActionWithDiagnostic,
   MacroPath,
 } from "./code_action_manager";
-import {
-  MacroTokenGroups as AnymacroTokenGroups,
-  MacroTokenGroups,
-} from "./anymacro_token_groups";
-import { AnyMacroFileTracker, MacroBody } from "./anymacro_file_tracker";
+import { MacroTokenGroups } from "./anymacro_token_groups";
+import { AnyMacroFileTracker } from "./anymacro_file_tracker";
 import { Glob, glob } from "glob";
 import { fileURLToPath } from "url";
-import { URI } from "vscode-uri";
-import { readFile } from "fs/promises";
 import { TextDocumentsEx } from "./text_document_ex";
+import { DefineTagNode } from "./anymacro2/parser";
 
 export abstract class LanguageServer extends Object {
   [key: string]: any;
@@ -185,28 +180,20 @@ export class AnymacroLanguageServer extends LanguageServer {
     if (macroFile === undefined || macro === undefined) {
       return;
     }
-    
-    const macroExpressionRange_ = Range.create(
-      macroFile.positionAt(macro.start.offSetStart("promot")),
-      macroFile.positionAt(macro.end.offsetEnd("end"))
-    );
-    const macroArguments = MacroTokenGroups.findArgs(macro.start.args);
-    const callArguments = MacroTokenGroups.findArgs(action.macroPath.arguments);
+
+    const callArguments = action.macroPath.arguments.split(",");
 
     const callExpressionRange = rangeFullLine(action.diagnostic.range);
     const callExpression = textDocument.getText(callExpressionRange);
     const callIndent = findIndent(callExpression);
 
-    const macroExpressionRange = rangeFullLine(macroExpressionRange_);
-    const macroExpression = macroFile.getText(macroExpressionRange);
-    const macroIndent = findIndent(macroExpression);
-    
-    const macroIndetRegex = new RegExp(String.raw`^${macroIndent}`, "gm");
-    const macroExpressionCalled = MacroTokenGroups.replaceArgs(macroExpression,macroArguments,callArguments);
-    
     let newText =
       callIndent + "// " + callExpression.substring(callIndent.length);
-    newText = newText + macroExpressionCalled.replace(macroIndetRegex, callIndent);
+    newText =
+      newText +
+      macro[0].outputWith(callArguments,callIndent) +
+      macro[1].outputWith(callArguments,callIndent) +
+      macro[2].outputWith(callArguments,callIndent);
 
     this.connection.workspace.applyEdit({
       documentChanges: [
@@ -254,8 +241,8 @@ export class AnymacroLanguageServer extends LanguageServer {
     const foundMacros = this.fileTracker.parseAnymacroDocument(textDocument);
 
     foundMacros.forEach((value, key) => {
-      this._temp_show_symbol(value.start, textDocument, diagnostics);
-      this._temp_show_symbol(value.end, textDocument, diagnostics);
+      this._temp_show_symbol(value[0], textDocument, diagnostics);
+      this._temp_show_symbol(value[2], textDocument, diagnostics);
     });
 
     return diagnostics;
@@ -299,22 +286,16 @@ export class AnymacroLanguageServer extends LanguageServer {
       });
     }
 
-    const foundMacros = this.fileTracker.parseContent(text);
-    Object.entries(foundMacros).forEach(([key, value]) => {
-      const ic = value.end ? "" : "<called here>";
-
-      this._temp_show_symbol(
-        value.start!,
-        textDocument,
-        diagnostics,
-        actions,
-        ic
-      );
-
-      if (ic === "") {
-        this._temp_show_symbol(value.end!, textDocument, diagnostics);
-      }
+    const parser = this.fileTracker.parseContent(text);
+    parser.balancer.blanced.forEach(([head, body, tail]) => {
+      this._temp_show_symbol(head, textDocument, diagnostics, actions);
+      this._temp_show_symbol(tail, textDocument, diagnostics);
     });
+    parser.balancer.unblanced.forEach((vaule, key) =>
+      vaule.forEach((value, key) => {
+        this._temp_show_symbol(value, textDocument, diagnostics, actions);
+      })
+    );
 
     return diagnostics;
   };
@@ -331,78 +312,82 @@ export class AnymacroLanguageServer extends LanguageServer {
   };
 
   _temp_show_symbol = (
-    groups: AnymacroTokenGroups,
+    node: DefineTagNode,
     textDocument: TextDocument,
     diagnostics: Diagnostic[],
-    actions?: CodeActionWithDiagnostic[],
-    isCalling: string = ""
+    actions?: CodeActionWithDiagnostic[]
   ) => {
-    if (groups.symbol) {
-      const startPos = textDocument.positionAt(groups.offSetStart("symbol"));
-      const endPos = textDocument.positionAt(groups.offsetEnd("symbol"));
+    const symbolName = node.symbol.range.slice(node._content);
+    {
+      const startPos = textDocument.positionAt(node.symbol.range.start.offset);
+      const endPos = textDocument.positionAt(node.symbol.range.end.offset);
       const diagnostic: Diagnostic = {
         severity: DiagnosticSeverity.Information,
         range: {
           start: startPos,
           end: endPos,
         },
-        message: `${groups.symbol} is symbol.`,
-        source: "anymacro",
-        data: `${textDocument.version}:${this.codeActionManager.getUnique()}`,
-      };
-    }
-
-    if (groups.args) {
-      const startPos = textDocument.positionAt(groups.offSetStart("args"));
-      const endPos = textDocument.positionAt(groups.offsetEnd("args"));
-      const diagnostic: Diagnostic = {
-        severity: DiagnosticSeverity.Information,
-        range: {
-          start: startPos,
-          end: endPos,
-        },
-        message: `${groups.args} is args.`,
+        message: `${symbolName} is symbol.`,
         source: "anymacro",
         data: `${textDocument.version}:${this.codeActionManager.getUnique()}`,
       };
       diagnostics.push(diagnostic);
     }
 
-    if (isCalling) {
-      const startPos = textDocument.positionAt(groups.offSetStart("promot"));
-      const endPos = textDocument.positionAt(groups.offsetEnd("end"));
+    const args = node.getArgsArray();
+    {
+      const startPos = textDocument.positionAt(
+        node.args.at(0)!.range.start.offset
+      );
+      const endPos = textDocument.positionAt(node.args.at(0)!.range.end.offset);
       const diagnostic: Diagnostic = {
         severity: DiagnosticSeverity.Information,
         range: {
           start: startPos,
           end: endPos,
         },
-        message: `${groups.symbol} is ${isCalling}`,
+        message: `${args.join("<->")} is args.`,
+        source: "anymacro",
+        data: `${textDocument.version}:${this.codeActionManager.getUnique()}`,
+      };
+      diagnostics.push(diagnostic);
+    }
+
+    if (node.isCallTag()) {
+      const startPos = textDocument.positionAt(node.keyword.range.start.offset);
+      const endPos = textDocument.positionAt(node.callNote.range.end.offset);
+      const diagnostic: Diagnostic = {
+        severity: DiagnosticSeverity.Information,
+        range: {
+          start: startPos,
+          end: endPos,
+        },
+        message: `${node.symbol} is <calling>`,
         source: "anymacro",
         data: `${textDocument.version}:${this.codeActionManager.getUnique()}`,
       };
 
       const macroFile = this.resolveFilePathForSymbol(
-        groups.symbol,
+        symbolName,
         textDocument.uri
       );
 
       const label = "trigger macro";
       diagnostics.push(diagnostic);
-      isCalling &&
-        actions?.push({
-          diagnostic: diagnostic,
-          action: CodeAction.create(
-            label,
-            Command.create(label, label, textDocument.uri, diagnostic.data),
-            CodeActionKind.QuickFix
-          ),
-          macroPath: {
-            fileName: macroFile,
-            symbolName: groups.symbol,
-            arguments: groups.args,
-          },
-        });
+
+      actions?.push({
+        diagnostic: diagnostic,
+        action: CodeAction.create(
+          label,
+          Command.create(label, label, textDocument.uri, diagnostic.data),
+          CodeActionKind.QuickFix
+        ),
+        macroPath: {
+          fileName: macroFile,
+          symbolName: symbolName,
+          arguments: args.join(","),
+        },
+      });
     }
   };
 }

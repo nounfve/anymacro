@@ -23,7 +23,7 @@ export class ParserCursor {
   };
 
   findLineStart = (_content: string) => {
-    let offsetCpy = this.offset - 1;
+    let offsetCpy = this.offset - 2;
     offsetCpy = _content.lastIndexOf("\n", offsetCpy);
     if (offsetCpy < 0) {
       // reach head of file
@@ -43,20 +43,22 @@ export class ParserCursor {
   };
 
   gotoNext = (_content: string, position: number) => {
+    this.charIdx = position - this.offset;
     while (this.offset < position) {
       const nextLine = this.findNextLine(_content);
       if (nextLine < position) {
+        this.charIdx -= this.charIdx - (nextLine - this.offset);
         this.offset = nextLine;
         this.lineIdx += 1;
       } else {
         this.offset = position;
-        this.charIdx = position - nextLine;
+        this.charIdx = nextLine - position;
       }
     }
   };
 
   gotoPrev = (_content: string, position: number) => {
-    while (this.offset < position) {
+    while (this.offset > position) {
       const prevLine = this.findPrevLine(_content);
       if (prevLine > position) {
         this.offset = prevLine;
@@ -93,7 +95,7 @@ export class ParserCursor {
     if (position < this.offset) {
       this.gotoPrev(_content, position);
     } else {
-      this.gotoPrev(_content, position);
+      this.gotoNext(_content, position);
     }
     return this;
   };
@@ -106,7 +108,12 @@ export class CursorRange {
     this.start = _start;
     this.end = _end;
   }
+
   get length(): number {
     return this.end.offset - this.start.offset;
+  }
+
+  slice(_content: string) {
+    return _content.slice(this.start.offset, this.end.offset);
   }
 }
