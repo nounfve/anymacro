@@ -1,3 +1,6 @@
+import { Range } from "vscode-languageserver";
+import { TextDocument } from "vscode-languageserver-textdocument";
+
 export class ParserCursorParams {
   offset?: number;
 }
@@ -115,5 +118,12 @@ export class CursorRange {
 
   slice(_content: string) {
     return _content.slice(this.start.offset, this.end.offset);
+  }
+
+  toVSCodeRange(textdocument: TextDocument): Range {
+    return Range.create(
+      textdocument.positionAt(this.start.offset),
+      textdocument.positionAt(this.end.offset)
+    );
   }
 }

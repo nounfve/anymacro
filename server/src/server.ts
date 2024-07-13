@@ -142,10 +142,6 @@ connection.languages.diagnostics.on(async (params) => {
   }
 });
 
-connection.onCodeAction(anymacroLanguageServer.onCodeAction);
-
-connection.onExecuteCommand(anymacroLanguageServer.onExecuteCommand);
-
 connection.onDidChangeWatchedFiles((_change) => {
   // Monitored files have change in VSCode
   console.log(_change.changes[0].type);

@@ -3,9 +3,19 @@
  * Licensed under the MIT License. See License.txt in the project root for license information.
  * ------------------------------------------------------------------------------------------ */
 
-import { FileExtRegex } from "anymacro-server";
+import {
+  DecoratorRequest,
+  DecoratorResponse,
+  FileExtRegex,
+} from "anymacro-server";
 import * as path from "path";
-import { workspace, ExtensionContext, DocumentSelector } from "vscode";
+import {
+  workspace,
+  ExtensionContext,
+  window,
+  OverviewRulerLane,
+  DecorationOptions,
+} from "vscode";
 
 import {
   DocumentFilter,
@@ -33,6 +43,86 @@ const SearchForAnyMacroExtension = async () => {
     });
   return extensions;
 };
+
+async function activeDecorator(context: ExtensionContext) {
+  // create a decorator type that we use to decorate small numbers
+  const smallNumberDecorationType = window.createTextEditorDecorationType({
+    borderWidth: "1px",
+    borderStyle: "solid",
+    overviewRulerColor: "blue",
+    overviewRulerLane: OverviewRulerLane.Right,
+    light: {
+      // this color will be used in light color themes
+      borderColor: "darkblue",
+    },
+    dark: {
+      // this color will be used in dark color themes
+      borderColor: "lightblue",
+    },
+  });
+
+  const symbolDecorationType = window.createTextEditorDecorationType({
+    cursor: "crosshair",
+    backgroundColor: "#AAAA0055",
+  });
+  const keywordDecorationType = window.createTextEditorDecorationType({
+    cursor: "crosshair",
+    backgroundColor: "#AA00AA55",
+  });
+
+  async function updateDecorations() {
+    if (!activeEditor) {
+      return;
+    }
+    const request = new DecoratorRequest(activeEditor.document.uri.toString());
+    const respose = await client.sendRequest<
+      DecoratorResponse<DecorationOptions>
+    >(DecoratorRequest.Event, request);
+    activeEditor.setDecorations(keywordDecorationType, respose.keyword);
+    activeEditor.setDecorations(symbolDecorationType, respose.symbol);
+    activeEditor.setDecorations(smallNumberDecorationType, respose.argument);
+    console.log("???");
+  }
+
+  let timeout: NodeJS.Timeout | undefined = undefined;
+  async function triggerUpdateDecorations(throttle = false) {
+    if (timeout) {
+      clearTimeout(timeout);
+      timeout = undefined;
+    }
+    if (throttle) {
+      timeout = setTimeout(updateDecorations, 500);
+    } else {
+      await updateDecorations();
+    }
+  }
+
+  let activeEditor = window.activeTextEditor;
+  if (activeEditor) {
+    await triggerUpdateDecorations();
+  }
+
+  window.onDidChangeActiveTextEditor(
+    async (editor) => {
+      activeEditor = editor;
+      if (editor) {
+        await triggerUpdateDecorations();
+      }
+    },
+    null,
+    context.subscriptions
+  );
+
+  workspace.onDidChangeTextDocument(
+    async (event) => {
+      if (activeEditor && event.document === activeEditor.document) {
+        await triggerUpdateDecorations(true);
+      }
+    },
+    null,
+    context.subscriptions
+  );
+}
 
 export async function activate(context: ExtensionContext) {
   console.log('Congratulations, your extension "anymacro" is now active!');
@@ -76,6 +166,8 @@ export async function activate(context: ExtensionContext) {
 
   // Start the client. This will also launch the server
   client.start();
+
+  await activeDecorator(context);
 }
 
 export function deactivate(): Thenable<void> | undefined {

@@ -116,10 +116,7 @@ export class DefineBodyNode extends DefineNode {
     for (const arg of this.args) {
       const matched = [];
       for (const child of this.children as SyntaxNode[]) {
-        const line = this._content!.substring(
-          child.range.start.offset,
-          child.range.end.offset
-        );
+        const line = child.range.slice(this._content);
         let lastfound = 0;
         while ((lastfound = line.indexOf(arg, lastfound)) > 0) {
           const start = new ParserCursor()

@@ -1,5 +1,6 @@
 import { TextDocument } from "vscode-languageserver-textdocument";
-import { Macrobody, Parser } from "./anymacro2/parser";
+import { DefineTagNode, Macrobody, Parser } from "./anymacro2/parser";
+import { DecoratorResponse } from "./decorator_export";
 
 export class AnyMacroFileTracker {
   macros: Map<string, Map<string, Macrobody>>;
@@ -59,4 +60,43 @@ export class AnyMacroFileTracker {
     this.version.set(textDocument.uri, textDocument.version);
     return macroMap;
   };
+
+  static macroGenerateDecorator(
+    macros: Map<string, Macrobody>,
+    textDocument: TextDocument
+  ): DecoratorResponse {
+    const response: DecoratorResponse = DecoratorResponse.blank();
+
+    const defineTagDecorator = (defineTag: DefineTagNode) => {
+      response.keyword.push({
+        range: defineTag.keyword.range.toVSCodeRange(textDocument),
+      });
+      response.symbol.push({
+        range: defineTag.symbol.range.toVSCodeRange(textDocument),
+      });
+      // arglist
+      defineTag.args.forEach((value) => {
+        response.argument.push({
+          range: value.range.toVSCodeRange(textDocument),
+        });
+      });
+    };
+
+    macros.forEach((value, key) => {
+      // open tag
+      defineTagDecorator(value[0]);
+      // body
+      for (const [arg, matched] of value[1].argsMatch) {
+        for (const one of matched) {
+          response.argument.push({
+            range: one.range.toVSCodeRange(textDocument!),
+          });
+        }
+      }
+      // close tag
+      defineTagDecorator(value[2]);
+    });
+
+    return response;
+  }
 }

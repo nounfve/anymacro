@@ -35,6 +35,7 @@ import { Glob, glob } from "glob";
 import { fileURLToPath } from "url";
 import { TextDocumentsEx } from "./text_document_ex";
 import { DefineTagNode } from "./anymacro2/parser";
+import { DecoratorRequest, DecoratorResponse } from "./decorator_export";
 
 export abstract class LanguageServer extends Object {
   [key: string]: any;
@@ -77,9 +78,14 @@ export class AnymacroLanguageServer extends LanguageServer {
   }
 
   listen = async () => {
+    this.connection.onCodeAction(this.onCodeAction);
+    this.connection.onExecuteCommand(this.onExecuteCommand);
+
     this.documents.onDidChangeContent((change) => {
       this.validateTextDocument(change.document);
     });
+
+    this.connection.onRequest(DecoratorRequest.Event, this.onDecoratorRequest);
 
     this.documents.listen(this.connection);
     this.connection.listen();
@@ -151,6 +157,18 @@ export class AnymacroLanguageServer extends LanguageServer {
     }
   };
 
+  onDecoratorRequest = (request: DecoratorRequest) => {
+    const found = this.fileTracker.getDocument(request.fileName);
+    const textDocument = this.documents.get(request.fileName);
+    if (textDocument === undefined) {
+      return DecoratorResponse.blank();
+    }
+    const response: DecoratorResponse =
+      AnyMacroFileTracker.macroGenerateDecorator(found, textDocument!);
+
+    return response;
+  };
+
   @AnymacroLanguageServer.register("to lower case")
   to_lower_case = (
     textDocument: TextDocument,
@@ -191,9 +209,9 @@ export class AnymacroLanguageServer extends LanguageServer {
       callIndent + "// " + callExpression.substring(callIndent.length);
     newText =
       newText +
-      macro[0].outputWith(callArguments,callIndent) +
-      macro[1].outputWith(callArguments,callIndent) +
-      macro[2].outputWith(callArguments,callIndent);
+      macro[0].outputWith(callArguments, callIndent) +
+      macro[1].outputWith(callArguments, callIndent) +
+      macro[2].outputWith(callArguments, callIndent);
 
     this.connection.workspace.applyEdit({
       documentChanges: [
@@ -318,40 +336,40 @@ export class AnymacroLanguageServer extends LanguageServer {
     actions?: CodeActionWithDiagnostic[]
   ) => {
     const symbolName = node.symbol.range.slice(node._content);
-    {
-      const startPos = textDocument.positionAt(node.symbol.range.start.offset);
-      const endPos = textDocument.positionAt(node.symbol.range.end.offset);
-      const diagnostic: Diagnostic = {
-        severity: DiagnosticSeverity.Information,
-        range: {
-          start: startPos,
-          end: endPos,
-        },
-        message: `${symbolName} is symbol.`,
-        source: "anymacro",
-        data: `${textDocument.version}:${this.codeActionManager.getUnique()}`,
-      };
-      diagnostics.push(diagnostic);
-    }
+    // {
+    //   const startPos = textDocument.positionAt(node.symbol.range.start.offset);
+    //   const endPos = textDocument.positionAt(node.symbol.range.end.offset);
+    //   const diagnostic: Diagnostic = {
+    //     severity: DiagnosticSeverity.Information,
+    //     range: {
+    //       start: startPos,
+    //       end: endPos,
+    //     },
+    //     message: `${symbolName} is symbol.`,
+    //     source: "anymacro",
+    //     data: `${textDocument.version}:${this.codeActionManager.getUnique()}`,
+    //   };
+    //   diagnostics.push(diagnostic);
+    // }
 
     const args = node.getArgsArray();
-    {
-      const startPos = textDocument.positionAt(
-        node.args.at(0)!.range.start.offset
-      );
-      const endPos = textDocument.positionAt(node.args.at(0)!.range.end.offset);
-      const diagnostic: Diagnostic = {
-        severity: DiagnosticSeverity.Information,
-        range: {
-          start: startPos,
-          end: endPos,
-        },
-        message: `${args.join("<->")} is args.`,
-        source: "anymacro",
-        data: `${textDocument.version}:${this.codeActionManager.getUnique()}`,
-      };
-      diagnostics.push(diagnostic);
-    }
+    // {
+    //   const startPos = textDocument.positionAt(
+    //     node.args.at(0)!.range.start.offset
+    //   );
+    //   const endPos = textDocument.positionAt(node.args.at(0)!.range.end.offset);
+    //   const diagnostic: Diagnostic = {
+    //     severity: DiagnosticSeverity.Information,
+    //     range: {
+    //       start: startPos,
+    //       end: endPos,
+    //     },
+    //     message: `${args.join("<->")} is args.`,
+    //     source: "anymacro",
+    //     data: `${textDocument.version}:${this.codeActionManager.getUnique()}`,
+    //   };
+    //   diagnostics.push(diagnostic);
+    // }
 
     if (node.isCallTag()) {
       const startPos = textDocument.positionAt(node.keyword.range.start.offset);
@@ -362,7 +380,7 @@ export class AnymacroLanguageServer extends LanguageServer {
           start: startPos,
           end: endPos,
         },
-        message: `${node.symbol} is <calling>`,
+        message: `${symbolName} is <calling>`,
         source: "anymacro",
         data: `${textDocument.version}:${this.codeActionManager.getUnique()}`,
       };
@@ -372,7 +390,7 @@ export class AnymacroLanguageServer extends LanguageServer {
         textDocument.uri
       );
 
-      const label = "trigger macro";
+      const label = "trigger macro: " + symbolName;
       diagnostics.push(diagnostic);
 
       actions?.push({
@@ -380,7 +398,7 @@ export class AnymacroLanguageServer extends LanguageServer {
         action: CodeAction.create(
           label,
           Command.create(label, label, textDocument.uri, diagnostic.data),
-          CodeActionKind.QuickFix
+          CodeActionKind.SourceOrganizeImports
         ),
         macroPath: {
           fileName: macroFile,
