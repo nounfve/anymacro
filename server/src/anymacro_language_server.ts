@@ -80,6 +80,7 @@ export class AnymacroLanguageServer extends LanguageServer {
   listen = async () => {
     this.connection.onCodeAction(this.onCodeAction);
     this.connection.onExecuteCommand(this.onExecuteCommand);
+    this.connection.onDidChangeWatchedFiles(this.onDidChangeWatchedFiles)
 
     this.documents.onDidChangeContent((change) => {
       this.validateTextDocument(change.document);

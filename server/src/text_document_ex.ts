@@ -14,7 +14,7 @@ export class TextDocumentsEx<T extends TextDocument> extends TextDocuments<T> {
   }
 
   get(uri: string): T | undefined {
-    return this._map_extra.get(uri) || super.get(uri);
+    return  super.get(uri)||this._map_extra.get(uri);
   }
 
   async create(filePath: string): Promise<void> {
