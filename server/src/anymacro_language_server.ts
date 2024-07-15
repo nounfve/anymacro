@@ -23,7 +23,6 @@ import {
   rangeFullLine,
 } from "./utils";
 import { connectionType } from "./server";
-import { FileExtRegex, MaxProblems } from "./constants";
 import {
   CodeActionMap as CodeActionManager,
   CodeActionWithDiagnostic,
@@ -34,7 +33,7 @@ import { AnyMacroFileTracker } from "./anymacro_file_tracker";
 import { Glob, glob } from "glob";
 import { fileURLToPath } from "url";
 import { TextDocumentsEx } from "./text_document_ex";
-import { DefineTagNode } from "./anymacro2/parser";
+import { DefineTagNode, Macrobody } from "./anymacro2/parser";
 import { DecoratorRequest, DecoratorResponse } from "./decorator_export";
 
 export abstract class LanguageServer extends Object {
@@ -80,7 +79,7 @@ export class AnymacroLanguageServer extends LanguageServer {
   listen = async () => {
     this.connection.onCodeAction(this.onCodeAction);
     this.connection.onExecuteCommand(this.onExecuteCommand);
-    this.connection.onDidChangeWatchedFiles(this.onDidChangeWatchedFiles)
+    this.connection.onDidChangeWatchedFiles(this.onDidChangeWatchedFiles);
 
     this.documents.onDidChangeContent((change) => {
       this.validateTextDocument(change.document);
@@ -161,9 +160,13 @@ export class AnymacroLanguageServer extends LanguageServer {
   onDecoratorRequest = (request: DecoratorRequest) => {
     const found = this.fileTracker.getDocument(request.fileName);
     const textDocument = this.documents.get(request.fileName);
-    const response: DecoratorResponse =DecoratorResponse.blank();
+    const response: DecoratorResponse = DecoratorResponse.blank();
     if (textDocument !== undefined) {
-      AnyMacroFileTracker.macroGenerateDecorator(found,response, textDocument!);
+      AnyMacroFileTracker.macroGenerateDecorator(
+        found,
+        response,
+        textDocument!
+      );
     }
     return response;
   };
@@ -208,7 +211,7 @@ export class AnymacroLanguageServer extends LanguageServer {
       callIndent + "// " + callExpression.substring(callIndent.length);
     newText =
       newText +
-      macro[0].outputWith(callArguments, callIndent) +
+      // macro[0].outputWith(callArguments, callIndent) +
       macro[1].outputWith(callArguments, callIndent) +
       macro[2].outputWith(callArguments, callIndent);
 
@@ -222,9 +225,13 @@ export class AnymacroLanguageServer extends LanguageServer {
     });
   };
 
-  resolveFilePathForSymbol = (symbol: string, path: string) => {
+  resolveFilePathForSymbol = (
+    symbol: string,
+    path: string
+  ): [string, Macrobody | undefined] => {
     const extension = findLastExtension(path);
     let macroFile: string = "";
+    let macro: Macrobody | undefined;
     for (const filename of parentPathGenerator(
       pathInjectAnymacroExtension(path),
       `index.anymacro${extension}`
@@ -240,13 +247,13 @@ export class AnymacroLanguageServer extends LanguageServer {
         this, this.fileTracker.parseAnymacroDocument(textDocument);
       }
 
-      const macro = this.fileTracker.getDocument(textDocument.uri).getSymbol(symbol);
-      if (!!macro) {
+      macro = this.fileTracker.getDocument(textDocument.uri).getSymbol(symbol);
+      if (!!macro && !macro[0].isCallTag()) {
         macroFile = textDocument.uri;
         break;
       }
     }
-    return macroFile;
+    return [macroFile, macro];
   };
 
   validateAnymacroFile = async (textDocument: TextDocument) => {
@@ -257,29 +264,13 @@ export class AnymacroLanguageServer extends LanguageServer {
 
     const parser = this.fileTracker.parseAnymacroDocument(textDocument);
 
-    parser.balancer.blanced.forEach((value, key) => {
-      this._temp_show_symbol(value[0], textDocument, diagnostics);
-      this._temp_show_symbol(value[2], textDocument, diagnostics);
+    parser.balancer.blanced.forEach((value) => {
+      this._temp_show_balanced(value, textDocument, diagnostics, actions);
     });
 
-    return diagnostics;
-  };
-
-  validateCallingFile = async (textDocument: TextDocument) => {
-    const actions = this.codeActionManager.getDocument(textDocument.uri);
-    actions.splice(0, actions.length);
-
-    const text = textDocument.getText();
-    const diagnostics: Diagnostic[] = [];
-
-    const parser = this.fileTracker.parseContent(text);
-    parser.balancer.blanced.forEach(([head, body, tail]) => {
-      this._temp_show_symbol(head, textDocument, diagnostics, actions);
-      this._temp_show_symbol(tail, textDocument, diagnostics);
-    });
     parser.balancer.unblanced.forEach((vaule, key) =>
       vaule.forEach((value, key) => {
-        this._temp_show_symbol(value, textDocument, diagnostics, actions);
+        this._temp_show_unexpanded(value, textDocument, diagnostics, actions);
       })
     );
 
@@ -289,15 +280,10 @@ export class AnymacroLanguageServer extends LanguageServer {
   validateTextDocument = async (
     textDocument: TextDocument
   ): Promise<Diagnostic[]> => {
-    const fileExtMatch = textDocument.uri.match(FileExtRegex);
-    if (fileExtMatch !== null) {
-      return this.validateAnymacroFile(textDocument);
-    } else {
-      return this.validateCallingFile(textDocument);
-    }
+    return this.validateAnymacroFile(textDocument);
   };
 
-  _temp_show_symbol = (
+  _temp_show_unexpanded = (
     node: DefineTagNode,
     textDocument: TextDocument,
     diagnostics: Diagnostic[],
@@ -339,34 +325,57 @@ export class AnymacroLanguageServer extends LanguageServer {
     //   diagnostics.push(diagnostic);
     // }
 
-    if (node.isCallTag()) {
-      const startPos = textDocument.positionAt(node.keyword.range.start.offset);
-      const endPos = textDocument.positionAt(node.callNote.range.end.offset);
-      const diagnostic: Diagnostic = {
+    if (!node.isCallTag()) {
+      return;
+    }
+
+    const startPos = textDocument.positionAt(node.keyword.range.start.offset);
+    const endPos = textDocument.positionAt(node.callNote.range.end.offset);
+    const unique = `${
+      textDocument.version
+    }:${this.codeActionManager.getUnique()}`;
+    const [macroFile, macro] = this.resolveFilePathForSymbol(
+      symbolName,
+      textDocument.uri
+    );
+
+    let diagnostic: Diagnostic | undefined = undefined;
+
+    if (!macro) {
+      diagnostic = {
+        severity: DiagnosticSeverity.Warning,
+        range: {
+          start: startPos,
+          end: endPos,
+        },
+        message: `cant resolve macro <${symbolName}>`,
+        source: "anymacro",
+        data: unique,
+      };
+    } else {
+      diagnostic = {
         severity: DiagnosticSeverity.Information,
         range: {
           start: startPos,
           end: endPos,
         },
-        message: `${symbolName} is <calling>`,
+        message: `unexpanded macro <${symbolName}>`,
         source: "anymacro",
-        data: `${textDocument.version}:${this.codeActionManager.getUnique()}`,
+        data: unique,
       };
 
-      const macroFile = this.resolveFilePathForSymbol(
-        symbolName,
-        textDocument.uri
-      );
-
-      const label = "trigger macro: " + symbolName;
-      diagnostics.push(diagnostic);
-
+      const label = "trigger macro";
       actions?.push({
         diagnostic: diagnostic,
         action: CodeAction.create(
           label,
-          Command.create(label, label, textDocument.uri, diagnostic.data),
-          CodeActionKind.SourceOrganizeImports
+          Command.create(
+            `${label} :${symbolName}`,
+            label,
+            textDocument.uri,
+            diagnostic.data
+          ),
+          CodeActionKind.QuickFix
         ),
         macroPath: {
           fileName: macroFile,
@@ -375,5 +384,65 @@ export class AnymacroLanguageServer extends LanguageServer {
         },
       });
     }
+
+    diagnostic && diagnostics.push(diagnostic);
+  };
+
+  _temp_show_balanced = (
+    node: Macrobody,
+    textDocument: TextDocument,
+    diagnostics: Diagnostic[],
+    actions?: CodeActionWithDiagnostic[]
+  ) => {
+    const head = node[0];
+    const body = node[1];
+    const symbolName = head.symbol.range.slice(head._content);
+    if (!head.isCallTag()) {
+      return;
+    }
+
+    const startPos = textDocument.positionAt(head.keyword.range.start.offset);
+    const endPos = textDocument.positionAt(head.callNote.range.end.offset);
+    const unique = `${
+      textDocument.version
+    }:${this.codeActionManager.getUnique()}`;
+    const [macroFile, macro] = this.resolveFilePathForSymbol(
+      symbolName,
+      textDocument.uri
+    );
+
+    let diagnostic: Diagnostic | undefined = undefined;
+
+    if (!macro) {
+      diagnostic = {
+        severity: DiagnosticSeverity.Warning,
+        range: {
+          start: startPos,
+          end: endPos,
+        },
+        message: `cant resolve macro <${symbolName}>`,
+        source: "anymacro",
+        data: unique,
+      };
+    } else {
+      const args = head.getArgsArray();
+      const indent = head.indent.range.slice(head._content);
+      const expanded = body.body();
+      const expandedShould = macro[1].outputWith(args, indent);
+      if(expandedShould.localeCompare(expanded)!==0){
+        diagnostic = {
+          severity: DiagnosticSeverity.Warning,
+          range: {
+            start: startPos,
+            end: endPos,
+          },
+          message: `unmatched expansion <${symbolName}>`,
+          source: "anymacro",
+          data: unique,
+        };
+      }
+    }
+
+    diagnostic && diagnostics.push(diagnostic);
   };
 }

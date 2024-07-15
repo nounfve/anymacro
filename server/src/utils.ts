@@ -1,5 +1,6 @@
 import { dirname } from "path";
 import { Diagnostic, Position, Range } from "vscode-languageserver";
+import { FileExtRegex } from './constants';
 
 const rational_shift_spliter = 10;
 export const postionToNumber = (pos: Position) => {
@@ -32,9 +33,10 @@ export type Optional<T extends { [key: string]: any }> = {
   [key in keyof T]: T[key] | undefined;
 };
 
+
 const lastdotRegex = /\.(.+)$/;
 export const pathInjectAnymacroExtension = (path: string) => {
-  return path.replace(lastdotRegex, ".anymacro.$1");
+  return path.replaceAll(".anymacro.",".").replace(lastdotRegex, ".anymacro.$1");
 };
 
 export const findLastExtension = (path: string) => {

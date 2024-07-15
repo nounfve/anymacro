@@ -15,60 +15,30 @@ export class AnyMacroFileTracker {
     return this.macros.get(path)!;
   };
 
-  parseContent = (content: string) => {
-    const parser = new Parser(content).parse();
-    return parser;
-    // // -------------------------------------------------
-    // const regEx = MacroTokenGroups.regExp();
-    // let match: RegExpExecArray | null;
-    // const found: { [key: string]: Optional<MacroBody> } = {};
-
-    // while ((match = regEx.exec(content))) {
-    //   const groups = new MacroTokenGroups(match);
-    //   if (groups.isDefineStart() || groups.isCall()) {
-    //     // found a define start
-    //     if (!!found[groups.symbol]) {
-    //       // skip for existed symbol
-    //       continue;
-    //     }
-    //     found[groups.symbol] = { start: groups, end: undefined };
-    //   } else if (groups.isDefineClose()) {
-    //     // found a define end
-    //     if (!found[groups.symbol] || !!found[groups.symbol]?.end) {
-    //       // skip for no start or already ended.
-    //       continue;
-    //     }
-    //     found[groups.symbol]!.end = groups;
-    //   } else {
-    //     // unknow syntax
-    //   }
-    // }
-    // return found;
-  };
-
   parseAnymacroDocument = (textDocument: TextDocument) => {
     const content = textDocument.getText();
-    const parser = this.parseContent(content);
+    const parser = new Parser(content).parse();
 
-    this.macros.set(textDocument.uri,parser)
+    this.macros.set(textDocument.uri, parser);
     return parser;
   };
 
   static macroGenerateDecorator(
     parser: Parser,
-    response:DecoratorResponse,
+    response: DecoratorResponse,
     textDocument: TextDocument
   ): DecoratorResponse {
-
     const defineTagDecorator = (defineTag: DefineTagNode) => {
-      response.keyword.push({
-        range: defineTag.keyword.range.toVSCodeRange(textDocument),
-      });
-      response.symbol.push({
-        range: defineTag.symbol.range.toVSCodeRange(textDocument),
-      });
+      defineTag.keyword &&
+        response.keyword.push({
+          range: defineTag.keyword.range.toVSCodeRange(textDocument),
+        });
+      defineTag.symbol &&
+        response.symbol.push({
+          range: defineTag.symbol.range.toVSCodeRange(textDocument),
+        });
       // arglist
-      defineTag.args.forEach((value) => {
+      defineTag.args?.forEach((value) => {
         response.argument.push({
           range: value.range.toVSCodeRange(textDocument),
         });
@@ -88,6 +58,16 @@ export class AnyMacroFileTracker {
       }
       // close tag
       defineTagDecorator(value[2]);
+    });
+
+    parser.balancer.unblanced.forEach((value) => {
+      for (const tag of value) {
+        defineTagDecorator(tag);
+      }
+    });
+
+    parser.balancer.wrong.forEach((value) => {
+      defineTagDecorator(value);
     });
 
     return response;

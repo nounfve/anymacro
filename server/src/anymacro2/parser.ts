@@ -6,8 +6,8 @@ class ParentNode implements SyntaxNode {
   get matcher(): MatchHelper {
     throw "not implemented";
   }
-  
-	private _range: CursorRange = new CursorRange(
+
+  private _range: CursorRange = new CursorRange(
     new ParserCursor(),
     new ParserCursor()
   );
@@ -51,27 +51,27 @@ export class DefineTagNode extends DefineNode {
   };
 
   get indent() {
-    return this.children[0] as SyntaxNode;
+    return this.children.at(0) as SyntaxNode;
   }
 
   get keyword() {
-    return this.children[2] as SyntaxNode;
+    return this.children.at(2) as SyntaxNode;
   }
 
   get symbol() {
-    return this.children[4] as SyntaxNode;
+    return this.children.at(4) as SyntaxNode;
   }
 
   get args() {
-    return this.children[6] as SyntaxNode[];
+    return this.children.at(6) as SyntaxNode[];
   }
 
   get callNote() {
-    return this.children[8] as SyntaxNode;
+    return this.children.at(8) as SyntaxNode;
   }
 
   get end() {
-    return this.children[9] as SyntaxNode;
+    return this.children.at(9) as SyntaxNode;
   }
 
   getArgsArray() {
@@ -134,6 +134,14 @@ export class DefineBodyNode extends DefineNode {
     return this;
   }
 
+  body() {
+    let body: string = "";
+    if (this.children.length > 0) {
+      body = this.range.slice(this._content);
+    }
+    return body;
+  }
+
   outputWith(args: string[], indent: string): string {
     const lines = [];
     for (const i of this.children as SyntaxNode[]) {
@@ -152,7 +160,7 @@ export type Macrobody = [DefineTagNode, DefineBodyNode, DefineTagNode];
 
 class KeyWordTagBalancer {
   unblanced: Map<string, DefineTagNode[]>;
-  blanced: Map<string,Macrobody>;
+  blanced: Map<string, Macrobody>;
   wrong: Array<DefineTagNode>;
   constructor() {
     this.unblanced = new Map();
@@ -173,7 +181,7 @@ class KeyWordTagBalancer {
       if (!openNode) {
         this.wrong.push(node);
       } else {
-        this.blanced.set(symbol,[openNode, undefined as any, node]);
+        this.blanced.set(symbol, [openNode, undefined as any, node]);
       }
     } else {
       this.getUnblancedStack(symbol).push(node);
@@ -308,7 +316,7 @@ export class Parser {
       }
     }
 
-    for (const [key,one] of this.balancer.blanced) {
+    for (const [key, one] of this.balancer.blanced) {
       const indent = (one[0].children.at(0) as SyntaxNode).range.length;
       const args = one[0].getArgsArray();
 
@@ -336,9 +344,9 @@ export class Parser {
     return this;
   };
 
-  getSymbol=(symbol:string)=>{
-    return this.balancer.blanced.get(symbol)
-  }
+  getSymbol = (symbol: string) => {
+    return this.balancer.blanced.get(symbol);
+  };
 }
 
 function regexExecCheckReturn(re: RegExp, target: string) {
