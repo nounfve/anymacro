@@ -152,11 +152,11 @@ export type Macrobody = [DefineTagNode, DefineBodyNode, DefineTagNode];
 
 class KeyWordTagBalancer {
   unblanced: Map<string, DefineTagNode[]>;
-  blanced: Array<Macrobody>;
+  blanced: Map<string,Macrobody>;
   wrong: Array<DefineTagNode>;
   constructor() {
     this.unblanced = new Map();
-    this.blanced = [];
+    this.blanced = new Map();
     this.wrong = [];
   }
 
@@ -173,7 +173,7 @@ class KeyWordTagBalancer {
       if (!openNode) {
         this.wrong.push(node);
       } else {
-        this.blanced.push([openNode, undefined as any, node]);
+        this.blanced.set(symbol,[openNode, undefined as any, node]);
       }
     } else {
       this.getUnblancedStack(symbol).push(node);
@@ -308,7 +308,7 @@ export class Parser {
       }
     }
 
-    for (const one of this.balancer.blanced) {
+    for (const [key,one] of this.balancer.blanced) {
       const indent = (one[0].children.at(0) as SyntaxNode).range.length;
       const args = one[0].getArgsArray();
 
@@ -335,6 +335,10 @@ export class Parser {
     }
     return this;
   };
+
+  getSymbol=(symbol:string)=>{
+    return this.balancer.blanced.get(symbol)
+  }
 }
 
 function regexExecCheckReturn(re: RegExp, target: string) {

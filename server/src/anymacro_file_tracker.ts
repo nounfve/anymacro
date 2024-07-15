@@ -3,7 +3,7 @@ import { DefineTagNode, Macrobody, Parser } from "./anymacro2/parser";
 import { DecoratorResponse } from "./decorator_export";
 
 export class AnyMacroFileTracker {
-  macros: Map<string, Map<string, Macrobody>>;
+  macros: Map<string, Parser>;
   version: Map<string, number>;
   constructor() {
     this.macros = new Map();
@@ -11,7 +11,7 @@ export class AnyMacroFileTracker {
   }
 
   getDocument = (path: string) => {
-    this.macros.has(path) || this.macros.set(path, new Map());
+    this.macros.has(path) || this.macros.set(path, new Parser(""));
     return this.macros.get(path)!;
   };
 
@@ -50,22 +50,15 @@ export class AnyMacroFileTracker {
     const content = textDocument.getText();
     const parser = this.parseContent(content);
 
-    const macroMap = this.getDocument(textDocument.uri);
-    macroMap.clear();
-
-    parser.balancer.blanced.forEach((body) => {
-      const symbolName = body[0].symbol.range.slice(body[0]._content);
-      macroMap.set(symbolName, body);
-    });
-    this.version.set(textDocument.uri, textDocument.version);
-    return macroMap;
+    this.macros.set(textDocument.uri,parser)
+    return parser;
   };
 
   static macroGenerateDecorator(
-    macros: Map<string, Macrobody>,
+    parser: Parser,
+    response:DecoratorResponse,
     textDocument: TextDocument
   ): DecoratorResponse {
-    const response: DecoratorResponse = DecoratorResponse.blank();
 
     const defineTagDecorator = (defineTag: DefineTagNode) => {
       response.keyword.push({
@@ -82,7 +75,7 @@ export class AnyMacroFileTracker {
       });
     };
 
-    macros.forEach((value, key) => {
+    parser.balancer.blanced.forEach((value, key) => {
       // open tag
       defineTagDecorator(value[0]);
       // body

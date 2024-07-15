@@ -161,12 +161,10 @@ export class AnymacroLanguageServer extends LanguageServer {
   onDecoratorRequest = (request: DecoratorRequest) => {
     const found = this.fileTracker.getDocument(request.fileName);
     const textDocument = this.documents.get(request.fileName);
-    if (textDocument === undefined) {
-      return DecoratorResponse.blank();
+    const response: DecoratorResponse =DecoratorResponse.blank();
+    if (textDocument !== undefined) {
+      AnyMacroFileTracker.macroGenerateDecorator(found,response, textDocument!);
     }
-    const response: DecoratorResponse =
-      AnyMacroFileTracker.macroGenerateDecorator(found, textDocument!);
-
     return response;
   };
 
@@ -195,7 +193,7 @@ export class AnymacroLanguageServer extends LanguageServer {
     const macroFile = this.documents.get(action.macroPath.fileName);
     const macro = this.fileTracker
       .getDocument(action.macroPath.fileName)
-      .get(action.macroPath.symbolName);
+      .getSymbol(action.macroPath.symbolName);
     if (macroFile === undefined || macro === undefined) {
       return;
     }
@@ -242,7 +240,7 @@ export class AnymacroLanguageServer extends LanguageServer {
         this, this.fileTracker.parseAnymacroDocument(textDocument);
       }
 
-      const macro = this.fileTracker.getDocument(textDocument.uri).get(symbol);
+      const macro = this.fileTracker.getDocument(textDocument.uri).getSymbol(symbol);
       if (!!macro) {
         macroFile = textDocument.uri;
         break;
@@ -257,9 +255,9 @@ export class AnymacroLanguageServer extends LanguageServer {
 
     const diagnostics: Diagnostic[] = [];
 
-    const foundMacros = this.fileTracker.parseAnymacroDocument(textDocument);
+    const parser = this.fileTracker.parseAnymacroDocument(textDocument);
 
-    foundMacros.forEach((value, key) => {
+    parser.balancer.blanced.forEach((value, key) => {
       this._temp_show_symbol(value[0], textDocument, diagnostics);
       this._temp_show_symbol(value[2], textDocument, diagnostics);
     });
@@ -273,37 +271,6 @@ export class AnymacroLanguageServer extends LanguageServer {
 
     const text = textDocument.getText();
     const diagnostics: Diagnostic[] = [];
-
-    let problems = 0;
-
-    const allCaps = /\b[A-Z]{2,}\b/g;
-
-    let match: RegExpExecArray | null;
-    while ((match = allCaps.exec(text)) && problems < MaxProblems) {
-      problems++;
-      const diagnostic: Diagnostic = {
-        severity: DiagnosticSeverity.Information,
-        range: {
-          start: textDocument.positionAt(match.index),
-          end: textDocument.positionAt(match.index + match[0].length),
-        },
-        message: `${match[0]} is all uppercase.`,
-        source: "anymacro",
-        data: `${textDocument.version}:${this.codeActionManager.getUnique()}`,
-      };
-      diagnostics.push(diagnostic);
-
-      const label = "to lower case";
-      actions.push({
-        diagnostic: diagnostic,
-        action: CodeAction.create(
-          label,
-          Command.create(label, label, textDocument.uri, diagnostic.data),
-          CodeActionKind.QuickFix
-        ),
-        macroPath: [] as unknown as MacroPath,
-      });
-    }
 
     const parser = this.fileTracker.parseContent(text);
     parser.balancer.blanced.forEach(([head, body, tail]) => {
