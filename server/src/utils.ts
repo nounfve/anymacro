@@ -1,6 +1,7 @@
 import { dirname } from "path";
-import { Diagnostic, Position, Range } from "vscode-languageserver";
-import { FileExtRegex } from './constants';
+import { Diagnostic, Position, Range, TextEdit } from "vscode-languageserver";
+import { FileExtRegex } from "./constants";
+import { TextDocument } from "vscode-languageserver-textdocument";
 
 const rational_shift_spliter = 10;
 export const postionToNumber = (pos: Position) => {
@@ -33,10 +34,11 @@ export type Optional<T extends { [key: string]: any }> = {
   [key in keyof T]: T[key] | undefined;
 };
 
-
 const lastdotRegex = /\.(.+)$/;
 export const pathInjectAnymacroExtension = (path: string) => {
-  return path.replaceAll(".anymacro.",".").replace(lastdotRegex, ".anymacro.$1");
+  return path
+    .replaceAll(".anymacro.", ".")
+    .replace(lastdotRegex, ".anymacro.$1");
 };
 
 export const findLastExtension = (path: string) => {
@@ -47,6 +49,46 @@ const indentRegex = /^([\t ]+)?/;
 export const findIndent = (line: string) => {
   const match = line.match(indentRegex);
   return !!match ? match[0] : "";
+};
+
+const lineWithOptionalCommentStarterRegex = /^(\s{0,})(\/\/)? ?(.{0,})$/;
+export const textEditCommentAndAppend = (
+  line: string,
+  tail: string,
+  position: Position
+) => {
+  const match=line.match(lineWithOptionalCommentStarterRegex)
+  const newText =
+    line.replace(lineWithOptionalCommentStarterRegex, "$1// $3") + tail;
+  return TextEdit.replace(
+    rangeFullLine(Range.create(position, position)),
+    newText
+  );
+};
+
+export const overlapSearch = (head: string, tail: string) => {
+  let head2: string;
+  let tail2: string;
+  if (head.length > tail.length) {
+    head2 = head.substring(head.length- tail.length);
+    tail2 = tail;
+  } else {
+    head2 = head;
+    tail2 = tail.substring(0, head.length);
+  }
+  const sameSize = head2.length;
+
+  const tailFirt = tail.at(0)!;
+  let headOffset = 0;
+  while ((headOffset = head2.indexOf(tailFirt, headOffset)) >= 0) {
+    const headToEnd = head2.substring(headOffset);
+    const tailFromStart = tail2.slice(0, sameSize - headOffset);
+    if (headToEnd.localeCompare(tailFromStart) === 0) {
+      return headToEnd;
+    }
+    headOffset++;
+  }
+  return "";
 };
 
 export function* parentPathGenerator(path: string, indexFileName: string) {

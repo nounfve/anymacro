@@ -3,6 +3,8 @@ import {
   CodeActionKind,
   CodeActionParams,
   Command,
+  CompletionItem,
+  CompletionItemKind,
   Diagnostic,
   DiagnosticSeverity,
   DidChangeWatchedFilesParams,
@@ -10,6 +12,7 @@ import {
   InitializeParams,
   Range,
   TextDocumentEdit,
+  TextDocumentPositionParams,
   TextEdit,
   WorkspaceFolder,
 } from "vscode-languageserver";
@@ -17,10 +20,12 @@ import { DocumentUri, TextDocument } from "vscode-languageserver-textdocument";
 import {
   findIndent,
   findLastExtension,
+  overlapSearch,
   parentPathGenerator,
   pathInjectAnymacroExtension,
   rangeContain,
   rangeFullLine,
+  textEditCommentAndAppend,
 } from "./utils";
 import { connectionType } from "./server";
 import {
@@ -80,6 +85,8 @@ export class AnymacroLanguageServer extends LanguageServer {
     this.connection.onCodeAction(this.onCodeAction);
     this.connection.onExecuteCommand(this.onExecuteCommand);
     this.connection.onDidChangeWatchedFiles(this.onDidChangeWatchedFiles);
+    this.connection.onCompletion(this.onCompletion);
+    this.connection.onCompletionResolve(this.onCompletionResolve);
 
     this.documents.onDidChangeContent((change) => {
       this.validateTextDocument(change.document);
@@ -155,6 +162,43 @@ export class AnymacroLanguageServer extends LanguageServer {
       const textdocument = this.documents.get(change.uri);
       this.fileTracker.parseAnymacroDocument(textdocument!);
     }
+  };
+
+  onCompletion = (params: TextDocumentPositionParams): CompletionItem[] => {
+    const completion: CompletionItem[] = [];
+    const textDocument = this.documents.get(params.textDocument.uri);
+    if (!textDocument) {
+      return completion;
+    }
+    const lineRange = rangeFullLine(
+      Range.create(params.position, params.position)
+    );
+    const line = textDocument.getText(lineRange);
+
+    const anymacroOverlap = overlapSearch(line, "@anyMacro");
+    if (anymacroOverlap.length > 0) {
+      completion.push({
+        label: "@anymacro",
+        kind: CompletionItemKind.Text,
+        textEdit: textEditCommentAndAppend(
+          line.substring(0, line.length - anymacroOverlap.length),
+          "@anyMacro",
+          params.position
+        ),
+        data: 3,
+      });
+    }
+
+    return completion;
+  };
+
+  onCompletionResolve = (item: CompletionItem): CompletionItem => {
+    switch (item.data) {
+      case 3:
+        item.detail = "anymacro details";
+        item.documentation = "anymacro documentation";
+    }
+    return item;
   };
 
   onDecoratorRequest = (request: DecoratorRequest) => {
@@ -429,7 +473,7 @@ export class AnymacroLanguageServer extends LanguageServer {
       const indent = head.indent.range.slice(head._content);
       const expanded = body.body();
       const expandedShould = macro[1].outputWith(args, indent);
-      if(expandedShould.localeCompare(expanded)!==0){
+      if (expandedShould.localeCompare(expanded) !== 0) {
         diagnostic = {
           severity: DiagnosticSeverity.Warning,
           range: {

@@ -7,9 +7,6 @@ import {
   ProposedFeatures,
   InitializeParams,
   DidChangeConfigurationNotification,
-  CompletionItem,
-  CompletionItemKind,
-  TextDocumentPositionParams,
   TextDocumentSyncKind,
   InitializeResult,
   DocumentDiagnosticReportKind,
@@ -17,7 +14,6 @@ import {
 } from "vscode-languageserver/node";
 
 import { AnymacroLanguageServer } from "./anymacro_language_server";
-import { busyWait } from "./utils";
 
 // Create a connection for the server, using Node's IPC as a transport.
 // Also include all preview / proposed LSP features.
@@ -140,40 +136,6 @@ connection.languages.diagnostics.on(async (params) => {
       items: [],
     } satisfies DocumentDiagnosticReport;
   }
-});
-
-// This handler provides the initial list of the completion items.
-connection.onCompletion(
-  (_textDocumentPosition: TextDocumentPositionParams): CompletionItem[] => {
-    // The pass parameter contains the position of the text document in
-    // which code complete got requested. For the example we ignore this
-    // info and always provide the same completion items.
-    return [
-      {
-        label: "TypeScript",
-        kind: CompletionItemKind.Text,
-        data: 1,
-      },
-      {
-        label: "JavaScript",
-        kind: CompletionItemKind.Text,
-        data: 2,
-      },
-    ];
-  }
-);
-
-// This handler resolves additional information for the item selected in
-// the completion list.
-connection.onCompletionResolve((item: CompletionItem): CompletionItem => {
-  if (item.data === 1) {
-    item.detail = "TypeScript details";
-    item.documentation = "TypeScript documentation";
-  } else if (item.data === 2) {
-    item.detail = "JavaScript details";
-    item.documentation = "JavaScript documentation";
-  }
-  return item;
 });
 
 anymacroLanguageServer.listen();
