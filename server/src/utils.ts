@@ -57,11 +57,10 @@ export const textEditCommentAndAppend = (
   tail: string,
   position: Position
 ) => {
-  const match=line.match(lineWithOptionalCommentStarterRegex)
   const newText =
     line.replace(lineWithOptionalCommentStarterRegex, "$1// $3") + tail;
   return TextEdit.replace(
-    rangeFullLine(Range.create(position, position)),
+    Range.create(Position.create(position.line, 0), position),
     newText
   );
 };
@@ -70,7 +69,7 @@ export const overlapSearch = (head: string, tail: string) => {
   let head2: string;
   let tail2: string;
   if (head.length > tail.length) {
-    head2 = head.substring(head.length- tail.length);
+    head2 = head.substring(head.length - tail.length);
     tail2 = tail;
   } else {
     head2 = head;
@@ -89,6 +88,10 @@ export const overlapSearch = (head: string, tail: string) => {
     headOffset++;
   }
   return "";
+};
+
+export const removeTrailingNextline = (str: string) => {
+  return str.at(-1) === "\n" ? str.slice(0, -1) : str;
 };
 
 export function* parentPathGenerator(path: string, indexFileName: string) {

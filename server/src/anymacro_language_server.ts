@@ -5,11 +5,13 @@ import {
   Command,
   CompletionItem,
   CompletionItemKind,
+  CompletionList,
   Diagnostic,
   DiagnosticSeverity,
   DidChangeWatchedFilesParams,
   ExecuteCommandParams,
   InitializeParams,
+  Position,
   Range,
   TextDocumentEdit,
   TextDocumentPositionParams,
@@ -25,6 +27,7 @@ import {
   pathInjectAnymacroExtension,
   rangeContain,
   rangeFullLine,
+  removeTrailingNextline,
   textEditCommentAndAppend,
 } from "./utils";
 import { connectionType } from "./server";
@@ -70,6 +73,7 @@ export class AnymacroLanguageServer extends LanguageServer {
   connection: connectionType;
   documents: TextDocumentsEx<TextDocument>;
   codeActionManager: CodeActionManager;
+  codeActionManager2: CodeActionManager;
   fileTracker: AnyMacroFileTracker;
   workspaceFolders: WorkspaceFolder[];
   constructor(connectionRef: connectionType) {
@@ -77,6 +81,7 @@ export class AnymacroLanguageServer extends LanguageServer {
     this.connection = connectionRef;
     this.documents = new TextDocumentsEx(TextDocument);
     this.codeActionManager = new CodeActionManager();
+    this.codeActionManager2 = new CodeActionManager();
     this.fileTracker = new AnyMacroFileTracker();
     this.workspaceFolders = [];
   }
@@ -119,11 +124,13 @@ export class AnymacroLanguageServer extends LanguageServer {
     if (textDocument === undefined) {
       return undefined;
     }
-    params.range.start;
     const actions = this.codeActionManager
       .getDocument(params.textDocument.uri)
       .filter((value) => {
-        return rangeContain(value.diagnostic.range, params.range);
+        return (
+          !!value.diagnostic &&
+          rangeContain(value.diagnostic.range, params.range)
+        );
       })
       .map((value) => {
         return value.action;
@@ -144,9 +151,11 @@ export class AnymacroLanguageServer extends LanguageServer {
       return;
     }
 
-    const action = this.codeActionManager
-      .getDocument(textDocument.uri)
-      .find((value) => {
+    const action =
+      this.codeActionManager.getDocument(textDocument.uri).find((value) => {
+        return value.diagnostic.data === identity;
+      }) ||
+      this.codeActionManager2.getDocument(textDocument.uri).find((value) => {
         return value.diagnostic.data === identity;
       });
     if (action === undefined) {
@@ -170,22 +179,45 @@ export class AnymacroLanguageServer extends LanguageServer {
     if (!textDocument) {
       return completion;
     }
+    const actions = this.codeActionManager2.getDocument(textDocument!.uri!);
     const lineRange = rangeFullLine(
       Range.create(params.position, params.position)
     );
-    const line = textDocument.getText(lineRange);
+    const line = removeTrailingNextline(textDocument.getText(lineRange));
 
     const anymacroOverlap = overlapSearch(line, "@anyMacro");
-    if (anymacroOverlap.length > 0) {
+    if (anymacroOverlap.length > 0 || true) {
+      const label = "post-insert keyword";
+      const unique = `${
+        textDocument.version
+      }:${this.codeActionManager.getUnique()}`;
+      const command = Command.create(
+        `${label}`,
+        label,
+        textDocument.uri,
+        unique
+      );
+      const textEdit = textEditCommentAndAppend(
+        line.substring(0, line.length - anymacroOverlap.length),
+        "@anyMacro",
+        params.position
+      );
+      actions.slice(0, actions.length);
+      actions.push({
+        diagnostic: { range: textEdit.range, message: "", data: unique },
+        action: CodeAction.create(label, command, CodeActionKind.Empty),
+        macroPath: {
+          fileName: undefined as any,
+          symbolName: undefined as any,
+          arguments: undefined as any,
+        },
+      });
+
       completion.push({
-        label: "@anymacro",
-        kind: CompletionItemKind.Text,
-        textEdit: textEditCommentAndAppend(
-          line.substring(0, line.length - anymacroOverlap.length),
-          "@anyMacro",
-          params.position
-        ),
-        data: 3,
+        label: "anyMacro",
+        insertText:"anyMacro",
+        kind: CompletionItemKind.Keyword,
+        command: command,
       });
     }
 
@@ -193,8 +225,8 @@ export class AnymacroLanguageServer extends LanguageServer {
   };
 
   onCompletionResolve = (item: CompletionItem): CompletionItem => {
-    switch (item.data) {
-      case 3:
+    switch (item.label) {
+      case "anymacro":
         item.detail = "anymacro details";
         item.documentation = "anymacro documentation";
     }
@@ -264,6 +296,31 @@ export class AnymacroLanguageServer extends LanguageServer {
         TextDocumentEdit.create(
           { uri: textDocument.uri, version: textDocument.version },
           [TextEdit.replace(callExpressionRange, newText)]
+        ),
+      ],
+    });
+  };
+
+  @AnymacroLanguageServer.register("post-insert keyword")
+  insert_keyword = (
+    textDocument: TextDocument,
+    action: CodeActionWithDiagnostic
+  ) => {
+    console.log(action.action.data);
+    const lineRange = rangeFullLine(action.diagnostic.range);
+    const line = removeTrailingNextline(textDocument.getText(lineRange));
+    const anymacroOverlap = overlapSearch(line, "@anyMacro");
+    const textEdit = textEditCommentAndAppend(
+      line.substring(0, line.length - anymacroOverlap.length),
+      "@anyMacro",
+      Position.create(lineRange.start.line, line.length)
+    );
+
+    this.connection.workspace.applyEdit({
+      documentChanges: [
+        TextDocumentEdit.create(
+          { uri: textDocument.uri, version: textDocument.version },
+          [textEdit]
         ),
       ],
     });
