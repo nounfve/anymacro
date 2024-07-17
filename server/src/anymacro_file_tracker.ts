@@ -45,7 +45,7 @@ export class AnyMacroFileTracker {
       });
     };
 
-    parser.balancer.blanced.forEach((value, key) => {
+    parser.balancer.defination.forEach((value, key) => {
       // open tag
       defineTagDecorator(value[0]);
       // body

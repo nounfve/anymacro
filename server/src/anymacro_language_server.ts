@@ -264,7 +264,7 @@ export class AnymacroLanguageServer extends LanguageServer {
     });
   };
 
-  @AnymacroLanguageServer.register("trigger macro")
+  @AnymacroLanguageServer.register("expand macro")
   trigger_macro = (
     textDocument: TextDocument,
     action: CodeActionWithDiagnostic
@@ -365,7 +365,7 @@ export class AnymacroLanguageServer extends LanguageServer {
 
     const parser = this.fileTracker.parseAnymacroDocument(textDocument);
 
-    parser.balancer.blanced.forEach((value) => {
+    parser.balancer.defination.forEach((value) => {
       this._temp_show_balanced(value, textDocument, diagnostics, actions);
     });
 
@@ -465,7 +465,7 @@ export class AnymacroLanguageServer extends LanguageServer {
         data: unique,
       };
 
-      const label = "trigger macro";
+      const label = "expand macro";
       actions?.push({
         diagnostic: diagnostic,
         action: CodeAction.create(
