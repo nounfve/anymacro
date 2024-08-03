@@ -60,6 +60,22 @@ export class AnyMacroFileTracker {
       defineTagDecorator(value[2]);
     });
 
+    // calling tags 
+    parser.balancer.balanced.forEach((value, key) => {
+      // open tag
+      defineTagDecorator(value[0]);
+      // body
+      for (const [arg, matched] of value[1].argsMatch) {
+        for (const one of matched) {
+          response.argument.push({
+            range: one.range.toVSCodeRange(textDocument!),
+          });
+        }
+      }
+      // close tag
+      defineTagDecorator(value[2]);
+    });
+
     parser.balancer.unblanced.forEach((value) => {
       for (const tag of value) {
         defineTagDecorator(tag);

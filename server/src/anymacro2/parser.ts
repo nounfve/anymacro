@@ -1,3 +1,4 @@
+import { on } from "events";
 import { MatchHelper } from "./match_helper";
 import { CursorRange, ParserCursor } from "./parser_cursor";
 import { SyntaxNode, keyword } from "./syntax_node";
@@ -46,10 +47,6 @@ export abstract class DefineNode extends ParentNode implements ContentRef {
 }
 
 export class DefineTagNode extends DefineNode {
-  isCallTag = () => {
-    return this.callNote.range.slice(this._content) === "";
-  };
-
   get indent() {
     return this.children.at(0) as SyntaxNode;
   }
@@ -73,6 +70,14 @@ export class DefineTagNode extends DefineNode {
   get end() {
     return this.children.at(9) as SyntaxNode;
   }
+
+  isCallTag = () => {
+    return this.callNote.range.slice(this._content) === "";
+  };
+
+  getSymbolName = () => {
+    return this.symbol.range.slice(this._content);
+  };
 
   getArgsArray() {
     return this.args.map((value) => {
@@ -160,10 +165,12 @@ export type Macrobody = [DefineTagNode, DefineBodyNode, DefineTagNode];
 
 class KeyWordTagBalancer {
   unblanced: Map<string, DefineTagNode[]>;
+  balanced: Macrobody[];
   defination: Map<string, Macrobody>;
   wrong: Array<DefineTagNode>;
   constructor() {
     this.unblanced = new Map();
+    this.balanced = [];
     this.defination = new Map();
     this.wrong = [];
   }
@@ -181,11 +188,24 @@ class KeyWordTagBalancer {
       if (!openNode) {
         this.wrong.push(node);
       } else {
-        this.defination.set(symbol, [openNode, undefined as any, node]);
+        this.balanced.push([openNode, undefined as any, node]);
       }
     } else {
       this.getUnblancedStack(symbol).push(node);
     }
+  }
+
+  selectDefination() {
+    const calling: Macrobody[] = [];
+    for (const one of this.balanced) {
+      if (one[0].isCallTag()) {
+        calling.push(one);
+      } else {
+        this.defination.set(one[0].getSymbolName(), one);
+      }
+    }
+    // reuse `blanced` property to storage calling tags
+    this.balanced = calling;
   }
 }
 
@@ -316,7 +336,7 @@ export class Parser {
       }
     }
 
-    for (const [key, one] of this.balancer.defination) {
+    for (const one of this.balancer.balanced) {
       const indent = (one[0].children.at(0) as SyntaxNode).range.length;
       const args = one[0].getArgsArray();
 
@@ -341,6 +361,8 @@ export class Parser {
       one[1]._content = this._content;
       one[1].searchArgs();
     }
+
+    this.balancer.selectDefination();
     return this;
   };
 
