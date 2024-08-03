@@ -290,7 +290,8 @@ export class AnymacroLanguageServer extends LanguageServer {
 
     let newText = callIndent + callExpression.substring(callIndent.length);
     // check lastline insert
-    newText = newText.slice(-2, -1) === "\n" ? newText : newText + "\n";
+    newText =
+      newText.charAt(newText.length - 1) === "\n" ? newText : newText + "\n";
     newText =
       newText +
       // macro[0].outputWith(callArguments, callIndent, commentPromt) +
@@ -320,7 +321,7 @@ export class AnymacroLanguageServer extends LanguageServer {
       return;
     }
 
-    const callArguments = action.macroPath.arguments.split(",");
+    // const callArguments = action.macroPath.arguments.split(",");
 
     const callExpressionRange = rangeFullLine(action.diagnostic.range);
     const fullExpansionRange = rangeFullLine(action.macroPath.range!);
@@ -612,7 +613,8 @@ export class AnymacroLanguageServer extends LanguageServer {
           arguments: args.join(","),
           range: {
             start: startPos,
-            end: textDocument.positionAt(node[2].end.range.end.offset),
+            // exclude nextline
+            end: textDocument.positionAt(node[2].end.range.end.offset - 1),
           },
         },
       });
