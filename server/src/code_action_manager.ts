@@ -1,9 +1,11 @@
 import { CodeAction, Diagnostic } from "vscode-languageserver";
+import { Range } from 'vscode-languageserver-textdocument';
 
 export type MacroPath = {
   fileName: string;
   symbolName: string;
   arguments: string;
+  range?:Range;
 };
 
 export type CodeActionWithDiagnostic = {

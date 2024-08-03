@@ -215,7 +215,7 @@ export class AnymacroLanguageServer extends LanguageServer {
 
       completion.push({
         label: "anyMacro",
-        insertText:"anyMacro",
+        insertText: "anyMacro",
         kind: CompletionItemKind.Keyword,
         command: command,
       });
@@ -284,7 +284,7 @@ export class AnymacroLanguageServer extends LanguageServer {
     const callIndent = findIndent(callExpression);
 
     let newText =
-      callIndent + "// " + callExpression.substring(callIndent.length);
+      callIndent + callExpression.substring(callIndent.length);
     newText =
       newText +
       // macro[0].outputWith(callArguments, callIndent) +
@@ -296,6 +296,38 @@ export class AnymacroLanguageServer extends LanguageServer {
         TextDocumentEdit.create(
           { uri: textDocument.uri, version: textDocument.version },
           [TextEdit.replace(callExpressionRange, newText)]
+        ),
+      ],
+    });
+  };
+
+  @AnymacroLanguageServer.register("unexpand macro")
+  unexpand_macro = (
+    textDocument: TextDocument,
+    action: CodeActionWithDiagnostic
+  ) => {
+    const macroFile = this.documents.get(action.macroPath.fileName);
+    const macro = this.fileTracker
+      .getDocument(action.macroPath.fileName)
+      .getSymbol(action.macroPath.symbolName);
+    if (macroFile === undefined || macro === undefined) {
+      return;
+    }
+
+    const callArguments = action.macroPath.arguments.split(",");
+
+    const callExpressionRange = rangeFullLine(action.diagnostic.range);
+    const fullExpansionRange = rangeFullLine(action.macroPath.range!);
+    const callExpression = textDocument.getText(callExpressionRange);
+    const callIndent = findIndent(callExpression);
+
+    let newText = callIndent + callExpression.substring(callIndent.length);
+
+    this.connection.workspace.applyEdit({
+      documentChanges: [
+        TextDocumentEdit.create(
+          { uri: textDocument.uri, version: textDocument.version },
+          [TextEdit.replace(fullExpansionRange, newText)]
         ),
       ],
     });
@@ -365,7 +397,7 @@ export class AnymacroLanguageServer extends LanguageServer {
 
     const parser = this.fileTracker.parseAnymacroDocument(textDocument);
 
-    parser.balancer.defination.forEach((value) => {
+    parser.balancer.balanced.forEach((value) => {
       this._temp_show_balanced(value, textDocument, diagnostics, actions);
     });
 
@@ -541,7 +573,42 @@ export class AnymacroLanguageServer extends LanguageServer {
           source: "anymacro",
           data: unique,
         };
+      } else {
+        diagnostic = {
+          severity: DiagnosticSeverity.Information,
+          range: {
+            start: startPos,
+            end: endPos,
+          },
+          message: `unexpand macro <${symbolName}>`,
+          source: "anymacro",
+          data: unique,
+        };
       }
+
+      const label = "unexpand macro";
+      actions?.push({
+        diagnostic: diagnostic,
+        action: CodeAction.create(
+          label,
+          Command.create(
+            `${label} :${symbolName}`,
+            label,
+            textDocument.uri,
+            diagnostic.data
+          ),
+          CodeActionKind.QuickFix
+        ),
+        macroPath: {
+          fileName: macroFile,
+          symbolName: symbolName,
+          arguments: args.join(","),
+          range: {
+            start: startPos,
+            end: textDocument.positionAt(node[2].end.range.end.offset),
+          },
+        },
+      });
     }
 
     diagnostic && diagnostics.push(diagnostic);
