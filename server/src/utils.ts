@@ -55,15 +55,23 @@ const lineWithOptionalCommentStarterRegex = /^(\s{0,})(\/\/)? ?(.{0,})$/;
 export const textEditCommentAndAppend = (
   line: string,
   tail: string,
-  position: Position
+  position: Position,
+  commentPromt: string = ""
 ) => {
   const newText =
-    line.replace(lineWithOptionalCommentStarterRegex, "$1// $3") + tail;
+    line.replace(lineWithOptionalCommentStarterRegex, `$1${commentPromt}$3`) +
+    tail;
   return TextEdit.replace(
     Range.create(Position.create(position.line, 0), position),
     newText
   );
 };
+
+export const determineCommentPromt=(fileExtension: string = "")=>{
+  let commentPromt =
+    fileExtension.toLocaleLowerCase() === ".dockerfile" ? "#" : "//";
+  return commentPromt+" "
+}
 
 export const overlapSearch = (head: string, tail: string) => {
   let head2: string;

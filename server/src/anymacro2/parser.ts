@@ -43,7 +43,11 @@ const secquende = [
 
 export abstract class DefineNode extends ParentNode implements ContentRef {
   _content: string = undefined as any;
-  abstract outputWith(args: string[], indent: string): string;
+  abstract outputWith(
+    args: string[],
+    indent: string,
+    commentPromt: string
+  ): string;
 }
 
 export class DefineTagNode extends DefineNode {
@@ -88,7 +92,11 @@ export class DefineTagNode extends DefineNode {
     });
   }
 
-  outputWith(args: string[], indent: string): string {
+  outputWith(
+    args: string[],
+    indent: string,
+    commentPromt: string = "// "
+  ): string {
     const beforeArgs = new CursorRange(
       this.keyword.range.start,
       this.args.at(0)!.range.start
@@ -102,7 +110,7 @@ export class DefineTagNode extends DefineNode {
       afterArgs = afterArgs.replace(callNote, "");
     }
 
-    return indent + "// " + beforeArgs + args.join(", ") + afterArgs;
+    return indent + commentPromt + beforeArgs + args.join(", ") + afterArgs;
   }
 }
 
@@ -147,7 +155,11 @@ export class DefineBodyNode extends DefineNode {
     return body;
   }
 
-  outputWith(args: string[], indent: string): string {
+  outputWith(
+    args: string[],
+    indent: string,
+    commentPromt: string = "// "
+  ): string {
     const lines = [];
     for (const i of this.children as SyntaxNode[]) {
       let line = indent + i.range.slice(this._content).slice(this.indent);

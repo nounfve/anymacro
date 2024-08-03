@@ -20,6 +20,7 @@ import {
 } from "vscode-languageserver";
 import { DocumentUri, TextDocument } from "vscode-languageserver-textdocument";
 import {
+  determineCommentPromt,
   findIndent,
   findLastExtension,
   overlapSearch,
@@ -200,7 +201,8 @@ export class AnymacroLanguageServer extends LanguageServer {
       const textEdit = textEditCommentAndAppend(
         line.substring(0, line.length - anymacroOverlap.length),
         "@anyMacro",
-        params.position
+        params.position,
+        determineCommentPromt(findLastExtension(textDocument.uri))
       );
       actions.slice(0, actions.length);
       actions.push({
@@ -282,14 +284,18 @@ export class AnymacroLanguageServer extends LanguageServer {
     const callExpressionRange = rangeFullLine(action.diagnostic.range);
     const callExpression = textDocument.getText(callExpressionRange);
     const callIndent = findIndent(callExpression);
+    const commentPromt = determineCommentPromt(
+      findLastExtension(textDocument.uri)
+    );
 
-    let newText =
-      callIndent + callExpression.substring(callIndent.length);
+    let newText = callIndent + callExpression.substring(callIndent.length);
+    // check lastline insert
+    newText = newText.slice(-2, -1) === "\n" ? newText : newText + "\n";
     newText =
       newText +
-      // macro[0].outputWith(callArguments, callIndent) +
-      macro[1].outputWith(callArguments, callIndent) +
-      macro[2].outputWith(callArguments, callIndent);
+      // macro[0].outputWith(callArguments, callIndent, commentPromt) +
+      macro[1].outputWith(callArguments, callIndent, commentPromt) +
+      macro[2].outputWith(callArguments, callIndent, commentPromt);
 
     this.connection.workspace.applyEdit({
       documentChanges: [
@@ -345,7 +351,8 @@ export class AnymacroLanguageServer extends LanguageServer {
     const textEdit = textEditCommentAndAppend(
       line.substring(0, line.length - anymacroOverlap.length),
       "@anyMacro",
-      Position.create(lineRange.start.line, line.length)
+      Position.create(lineRange.start.line, line.length),
+      determineCommentPromt(findLastExtension(textDocument.uri))
     );
 
     this.connection.workspace.applyEdit({
@@ -575,7 +582,7 @@ export class AnymacroLanguageServer extends LanguageServer {
         };
       } else {
         diagnostic = {
-          severity: DiagnosticSeverity.Information,
+          severity: DiagnosticSeverity.Hint,
           range: {
             start: startPos,
             end: endPos,
