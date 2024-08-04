@@ -5,6 +5,6 @@ INPUT="$1"
 OUTPUT="$(basename "${INPUT%.*}")"
 ffmpeg -i "${INPUT}" \
         -vf "fps=10,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse" \
-        -loop -1 \
+        -loop -0 \
         "${OUTPUT}.gif"
 # gifsicle --optimize=3 --output "${OUTPUT}-optimized.gif" --resize-height 600 "${OUTPUT}.gif"
