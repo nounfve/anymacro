@@ -67,11 +67,12 @@ export const textEditCommentAndAppend = (
   );
 };
 
-export const determineCommentPromt=(fileExtension: string = "")=>{
+export const determineCommentPromt = (fileExtension: string = "") => {
+  fileExtension = fileExtension.toLocaleLowerCase();
   let commentPromt =
-    fileExtension.toLocaleLowerCase() === ".dockerfile" ? "#" : "//";
-  return commentPromt+" "
-}
+    fileExtension === ".dockerfile" || fileExtension === ".py" ? "#" : "//";
+  return commentPromt + " ";
+};
 
 export const overlapSearch = (head: string, tail: string) => {
   let head2: string;
